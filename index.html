@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=2" />
+  <link rel="stylesheet" href="./css/styles.css?v=3" />
   <!-- Librerías para exportar Tablas en Excel (.xlsx) y PDF -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -616,7 +616,7 @@
       <form onsubmit="RanchoApp.guardarConfiguracion(event)">
         <div class="modal-body">
           <div class="fieldset-card">
-            <div class="fieldset-header">Datos del rancho y propietarios</div>
+            <div class="fieldset-header">🏷️ Datos del rancho y fierros (F y H)</div>
             <div class="form-grid">
               <div class="form-group full-width">
                 <label class="form-label" for="cfgNombreRancho">Nombre del rancho</label>
@@ -646,7 +646,7 @@
           </div>
 
           <div class="fieldset-card">
-            <div class="fieldset-header">Base de datos en la nube (Firebase Firestore)</div>
+            <div class="fieldset-header">☁️ Base de datos en la nube (Firebase Firestore)</div>
             <div class="form-grid">
               <div class="form-group full-width">
                 <label class="cloud-toggle-label">
@@ -676,7 +676,7 @@
           </div>
 
           <div class="fieldset-card">
-            <div class="fieldset-header">Copia de seguridad manual y reinicio</div>
+            <div class="fieldset-header">💾 Copia de seguridad y mantenimiento</div>
             <div class="backup-actions-row">
               <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.descargarRespaldoJSON()">
                 Descargar respaldo (.json)
@@ -753,9 +753,9 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- SCRIPTS DEL SISTEMA -->
-  <script src="./js/validations.js?v=2"></script>
-  <script src="./js/db.js?v=2"></script>
-  <script src="./js/exports.js?v=2"></script>
-  <script src="./js/app.js?v=2"></script>
+  <script src="./js/validations.js?v=3"></script>
+  <script src="./js/db.js?v=3"></script>
+  <script src="./js/exports.js?v=3"></script>
+  <script src="./js/app.js?v=3"></script>
 </body>
 </html>
