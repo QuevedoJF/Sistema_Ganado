@@ -85,7 +85,9 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sidebar-brand {
@@ -324,7 +326,8 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.09);
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.65rem;
+  flex-shrink: 0;
 }
 
 .session-mode-box {
@@ -396,22 +399,32 @@ body {
 
 .btn-sidebar-config {
   width: 100%;
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(197, 160, 89, 0.12);
+  border: 1px solid rgba(197, 160, 89, 0.35);
   border-radius: var(--radius-md);
-  padding: 0.5rem 0.65rem;
-  color: #dce3de;
+  padding: 0.65rem 0.75rem;
+  color: #f6f3ee;
   font-family: inherit;
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.82rem;
+  font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 0.55rem;
   cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 44px;
 }
 
-.btn-sidebar-config:hover {
-  background: rgba(255, 255, 255, 0.08);
+.btn-sidebar-config svg {
+  color: var(--gold-accent);
+}
+
+.btn-sidebar-config:hover,
+.btn-sidebar-config:active {
+  background: rgba(197, 160, 89, 0.22);
+  border-color: var(--gold-accent);
+  color: #ffffff;
 }
 
 /* ==========================================================================
@@ -895,12 +908,13 @@ body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(22, 32, 25, 0.55);
+  background: rgba(22, 32, 25, 0.65);
   display: none;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 2500;
   padding: 1rem;
+  backdrop-filter: blur(2px);
 }
 
 .modal-backdrop.open {
@@ -1418,6 +1432,11 @@ body {
     opacity: 1;
   }
 
+  body.sidebar-open {
+    overflow: hidden !important;
+    touch-action: none !important;
+  }
+
   .sidebar {
     position: fixed;
     top: 0;
@@ -1425,15 +1444,25 @@ body {
     bottom: 0;
     width: 295px;
     max-width: 86vw;
-    height: 100vh;
+    height: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
     z-index: 1200;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    overscroll-behavior-y: contain !important;
+    touch-action: pan-y !important;
     transform: translateX(-100%);
     transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     box-shadow: 8px 0 32px rgba(0, 0, 0, 0.5);
-    padding: 1rem 1rem 3rem;
+    padding: 1rem 1rem calc(7.5rem + env(safe-area-inset-bottom, 0px)) !important;
     border-right: 1px solid rgba(255, 255, 255, 0.1);
+    box-sizing: border-box !important;
+  }
+
+  .sidebar > * {
+    flex-shrink: 0 !important;
   }
 
   .sidebar.open {
@@ -1447,6 +1476,35 @@ body {
     padding-bottom: 0.75rem;
     margin-bottom: 0.75rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 0.5rem;
+  }
+
+  .sidebar-top-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .btn-top-config {
+    background: rgba(197, 160, 89, 0.15);
+    border: 1px solid rgba(197, 160, 89, 0.35);
+    color: var(--gold-accent);
+    border-radius: var(--radius-sm);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.35rem 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-top-config:hover,
+  .btn-top-config:active {
+    background: rgba(197, 160, 89, 0.3);
+    color: #ffffff;
+    border-color: var(--gold-accent);
   }
 
   .sidebar-drawer-title {

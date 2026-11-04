@@ -71,6 +71,7 @@ window.RanchoApp = {
     const nuevoEstado = abrir !== null ? abrir : !estaAbierto;
     sb.classList.toggle('open', nuevoEstado);
     if (bd) bd.classList.toggle('open', nuevoEstado);
+    document.body.classList.toggle('sidebar-open', nuevoEstado);
   },
 
   obtenerAnimalesFiltrados(forzarEstatus = null) {
@@ -1659,6 +1660,7 @@ window.RanchoApp = {
    * GESTIÓN DE ACCESO PRIVADO VS VISTA PORTAFOLIO (DEMO)
    */
   accionBotonSesion() {
+    this.toggleSidebar(false);
     if (window.RanchoDB.sessionMode === 'REAL') {
       window.RanchoDB.cerrarSesionPrivada();
       this.mostrarToast('Sesión privada cerrada. Ahora se muestran solo los datos de demostración.');
@@ -1692,6 +1694,7 @@ window.RanchoApp = {
    * MODAL DE CONFIGURACIÓN DEL RANCHO Y NUBE
    */
   abrirModalConfiguracion() {
+    this.toggleSidebar(false);
     if (window.RanchoDB.sessionMode !== 'REAL') {
       this.mostrarToast('Desbloquea primero el acceso privado para configurar propietarios y nube.');
       this.accionBotonSesion();

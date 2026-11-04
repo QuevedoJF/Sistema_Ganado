@@ -33,7 +33,7 @@
         </svg>
       </button>
       <div class="mobile-brand-emblem" aria-hidden="true">F·H</div>
-      <div class="mobile-brand-meta">
+      <div class="mobile-brand-meta" onclick="if(window.RanchoDB.sessionMode === 'REAL') RanchoApp.abrirModalConfiguracion()" style="cursor: pointer;" title="Toca para configurar propietarios y nube">
         <span class="mobile-brand-title" id="mobileRanchoNombre">Rancho Ganadero</span>
         <span class="mobile-brand-status" id="mobileSessionStatus">Vista Portafolio</span>
       </div>
@@ -55,7 +55,16 @@
     <aside id="mainSidebar" class="sidebar">
       <div class="sidebar-top-row mobile-only">
         <span class="sidebar-drawer-title">Menú de gestión</span>
-        <button type="button" class="btn-close-sidebar" onclick="RanchoApp.toggleSidebar(false)" aria-label="Cerrar">&times;</button>
+        <div class="sidebar-top-row-actions">
+          <button type="button" class="btn-top-config" onclick="RanchoApp.abrirModalConfiguracion()" title="Configurar propietarios y nube" aria-label="Propietarios y nube">
+            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="10" cy="10" r="3" />
+              <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
+            </svg>
+            <span>Nube &amp; Dueños</span>
+          </button>
+          <button type="button" class="btn-close-sidebar" onclick="RanchoApp.toggleSidebar(false)" aria-label="Cerrar">&times;</button>
+        </div>
       </div>
 
       <div class="sidebar-brand">
@@ -146,8 +155,16 @@
 
       <!-- PIE DE BARRA LATERAL: ESTADO NUBE, MODO PORTAFOLIO Y CONFIGURACIÓN -->
       <div class="sidebar-footer">
+        <button id="btnSidebarConfig" class="btn-sidebar-config" onclick="RanchoApp.abrirModalConfiguracion()">
+          <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="10" cy="10" r="3" />
+            <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
+          </svg>
+          <span>Propietarios y nube</span>
+        </button>
+
         <div id="sessionModeBanner" class="session-mode-box mode-demo">
-          <div class="session-mode-header">
+          <div class="session-mode-header" onclick="if(window.RanchoDB.sessionMode === 'REAL') RanchoApp.abrirModalConfiguracion()" style="cursor: pointer;" title="Toca para configurar la sincronización de nube">
             <span id="syncStatusDot" class="sync-dot"></span>
             <span id="syncStatusText" class="sync-text">Vista Portafolio (Demo)</span>
           </div>
@@ -155,14 +172,6 @@
             Entrar al rancho privado
           </button>
         </div>
-
-        <button id="btnSidebarConfig" class="btn-sidebar-config" onclick="RanchoApp.abrirModalConfiguracion()">
-          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
-            <circle cx="10" cy="10" r="3" />
-            <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
-          </svg>
-          <span>Propietarios y nube</span>
-        </button>
       </div>
     </aside>
 
@@ -240,10 +249,9 @@
         <span>Bajas</span>
       </button>
 
-      <button class="m-bottom-tab" onclick="RanchoApp.toggleSidebar(true)">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
-          <circle cx="10" cy="10" r="3" />
-          <path d="M10 2v2M10 16v2M2 10h2M16 10h2" stroke-linecap="round" />
+      <button class="m-bottom-tab" onclick="RanchoApp.toggleSidebar(true)" aria-label="Abrir menú de gestión">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/>
         </svg>
         <span>Menú</span>
       </button>
