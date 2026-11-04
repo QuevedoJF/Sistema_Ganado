@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistema de Control Ganadero — Fierros F y H</title>
+  <meta name="theme-color" content="#1c241e" />
+  <script>
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      const link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = './manifest.json';
+      document.head.appendChild(link);
+    }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/styles.css" />
+  <!-- Librerías para exportar Tablas en Excel (.xlsx) y PDF -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+  <div class="app-shell">
+    <!-- BARRA LATERAL DE NAVEGACIÓN Y CONTROL DE FIERROS -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-emblem" aria-hidden="true">
+          <span class="emblem-f">F</span>
+          <span class="emblem-divider"></span>
+          <span class="emblem-h">H</span>
+        </div>
+        <div class="brand-meta">
+          <h1 id="ranchoNombreHeader">Rancho Ganadero F &amp; H</h1>
+          <p id="ranchoPropietariosHeader">Control de Padrón y Trazabilidad</p>
+        </div>
+      </div>
+
+      <!-- SELECTOR DE FIERRO (PROPIETARIOS) -->
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Filtrar por fierro</div>
+        <div class="fierro-selector" role="group" aria-label="Filtro por Fierro">
+          <button id="btnFilterAll" class="fierro-option active-all" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
+            <span class="fierro-option-mark mark-all">F·H</span>
+            <span class="fierro-option-info">
+              <span class="fierro-option-title">Todo el rancho</span>
+              <span class="fierro-option-sub">Ambos propietarios</span>
+            </span>
+            <span id="sideCountAll" class="fierro-option-count">0</span>
+          </button>
+
+          <button id="btnFilterF" class="fierro-option" onclick="RanchoApp.cambiarFiltroFierro('F')">
+            <span class="fierro-option-mark mark-f">F</span>
+            <span class="fierro-option-info">
+              <span class="fierro-option-title">Fierro F</span>
+              <span id="sideOwnerF" class="fierro-option-sub">Propietario F</span>
+            </span>
+            <span id="sideCountF" class="fierro-option-count">0</span>
+          </button>
+
+          <button id="btnFilterH" class="fierro-option" onclick="RanchoApp.cambiarFiltroFierro('H')">
+            <span class="fierro-option-mark mark-h">H</span>
+            <span class="fierro-option-info">
+              <span class="fierro-option-title">Fierro H</span>
+              <span id="sideOwnerH" class="fierro-option-sub">Propietario H</span>
+            </span>
+            <span id="sideCountH" class="fierro-option-count">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- SECCIONES DEL SISTEMA -->
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Módulos de gestión</div>
+        <nav class="sidebar-nav">
+          <button class="nav-tab active" data-tab="inventario" onclick="RanchoApp.cambiarTab('inventario')">
+            <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
+              <rect x="3" y="4" width="14" height="12" rx="2" />
+              <path d="M3 8h14M8 8v8" />
+            </svg>
+            <span class="nav-tab-text">Padrón en corral</span>
+            <span id="badgeCountInventario" class="tab-badge">0</span>
+          </button>
+
+          <button class="nav-tab" data-tab="genealogia" onclick="RanchoApp.cambiarTab('genealogia')">
+            <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
+              <circle cx="6" cy="6" r="2.5" />
+              <circle cx="14" cy="14" r="2.5" />
+              <path d="M6 8.5v3a2.5 2.5 0 002.5 2.5h3" />
+            </svg>
+            <span class="nav-tab-text">Madres y crías</span>
+            <span id="badgeCountGenealogia" class="tab-badge">0</span>
+          </button>
+
+          <button class="nav-tab" data-tab="sanidad" onclick="RanchoApp.cambiarTab('sanidad')">
+            <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
+              <path d="M10 4v12M4 10h12" stroke-linecap="round" />
+            </svg>
+            <span class="nav-tab-text">Sanidad y pesajes</span>
+            <span id="badgeCountSanidad" class="tab-badge">0</span>
+          </button>
+
+          <button class="nav-tab" data-tab="bajas" onclick="RanchoApp.cambiarTab('bajas')">
+            <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
+              <path d="M4 10h11M11 6l4 4-4 4" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="nav-tab-text">Ventas y bajas</span>
+            <span id="badgeCountBajas" class="tab-badge">0</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- PIE DE BARRA LATERAL: ESTADO NUBE, MODO PORTAFOLIO Y CONFIGURACIÓN -->
+      <div class="sidebar-footer">
+        <div id="sessionModeBanner" class="session-mode-box mode-demo">
+          <div class="session-mode-header">
+            <span id="syncStatusDot" class="sync-dot"></span>
+            <span id="syncStatusText" class="sync-text">Vista Portafolio (Demo)</span>
+          </div>
+          <button id="btnToggleSessionMode" type="button" class="btn-session-switch" onclick="RanchoApp.accionBotonSesion()">
+            Entrar al rancho privado
+          </button>
+        </div>
+
+        <button id="btnSidebarConfig" class="btn-sidebar-config" onclick="RanchoApp.abrirModalConfiguracion()">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
+            <circle cx="10" cy="10" r="3" />
+            <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
+          </svg>
+          <span>Propietarios y nube</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ÁREA DE TRABAJO PRINCIPAL -->
+    <div class="workspace">
+      <!-- ENCABEZADO OPERATIVO -->
+      <header class="workspace-header">
+        <div class="workspace-header-left">
+          <div class="breadcrumb-line" id="vistaSubtitulo">Inventario activo en los terrenos del rancho</div>
+          <h2 class="workspace-title" id="vistaTituloPrincipal">Padrón de Ganado</h2>
+        </div>
+
+        <div class="workspace-header-actions">
+          <div class="export-group">
+            <button class="btn btn-outline btn-sm" onclick="RanchoApp.descargarTablaActualExcel('General')">
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
+                <path d="M10 3v10m0 0l-3.5-3.5M10 13l3.5-3.5M4 16h12" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>Excel (.xlsx)</span>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="RanchoApp.descargarTablaActualPDF('Padrón General de Ganado')">
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
+                <path d="M6 6V3h8v3M6 14H4a1 1 0 01-1-1V8a2 2 0 012-2h10a2 2 0 012 2v5a1 1 0 01-1 1h-2M6 11h8v6H6v-6z" stroke-linejoin="round" />
+              </svg>
+              <span>Tabla PDF</span>
+            </button>
+          </div>
+
+          <button class="btn btn-primary" onclick="RanchoApp.abrirModalAnimal()">
+            <span>+ Registrar cabeza</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- CINTA DE RESUMEN (MÉTRICAS SOBRIAS Y ORDENADAS) -->
+      <section id="kpiGrid" class="summary-strip" aria-label="Resumen de inventario"></section>
+
+      <!-- AVISOS DE PENDIENTES EN CORRAL -->
+      <section id="alertsPanel" class="alerts-bar" style="display:none;"></section>
+
+      <!-- CONTENEDOR DE LA TABLA ACTIVA -->
+      <main id="mainViewContainer" class="ledger-section"></main>
+    </div>
+  </div>
+
+  <!-- =======================================================================
+       MODAL 1: ALTA / EDICIÓN DE VACA O BECERRO
+       ======================================================================= -->
+  <div id="modalAnimal" class="modal-backdrop">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalAnimalTitulo">Registrar cabeza de ganado</h2>
+        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalAnimal')" aria-label="Cerrar">&times;</button>
+      </div>
+
+      <form onsubmit="RanchoApp.guardarFormularioAnimal(event)">
+        <div class="modal-body">
+          <!-- Bloque 1: Propiedad y Sexo -->
+          <div class="fieldset-card">
+            <div class="fieldset-header">Propiedad y clasificación</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label">Fierro del propietario *</label>
+                <div class="visual-selector-group">
+                  <div id="optFierroF" class="visual-radio-option selected-fierro-F" onclick="RanchoApp.seleccionarFierroModal('F')">
+                    <span class="radio-brand-mark">F</span>
+                    <span>Fierro F</span>
+                  </div>
+                  <div id="optFierroH" class="visual-radio-option" onclick="RanchoApp.seleccionarFierroModal('H')">
+                    <span class="radio-brand-mark">H</span>
+                    <span>Fierro H</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Sexo *</label>
+                <div class="visual-selector-group">
+                  <div id="optSexoHembra" class="visual-radio-option selected-sexo-Hembra" onclick="RanchoApp.seleccionarSexoModal('Hembra')">
+                    <span>♀ Hembra</span>
+                  </div>
+                  <div id="optSexoMacho" class="visual-radio-option" onclick="RanchoApp.seleccionarSexoModal('Macho')">
+                    <span>♂ Macho</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bloque 2: Identificación sin duplicados -->
+          <div class="fieldset-card">
+            <div class="fieldset-header">Numeración y arete oficial</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label" for="fieldNumero">Número en el fierro *</label>
+                  <button type="button" class="btn-link-action" onclick="RanchoApp.usarNumeroSugerido()">
+                    Sugerir disponible
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  id="fieldNumero"
+                  class="form-input input-mono"
+                  placeholder="Ej. 15"
+                  required
+                  oninput="RanchoApp.validarFormularioEnVivo()"
+                />
+                <div id="msgValidacionNumero" class="validation-msg"></div>
+              </div>
+
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label" for="fieldArete">Arete oficial (SINIIGA)</label>
+                </div>
+                <input
+                  type="text"
+                  id="fieldArete"
+                  class="form-input input-mono"
+                  placeholder="Ej. MX-260015 (vacío si está pendiente)"
+                  oninput="RanchoApp.alEscribirArete()"
+                />
+                <div id="msgValidacionArete" class="validation-msg"></div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="fieldColorArete">Tipo de arete</label>
+                <select id="fieldColorArete" class="form-select">
+                  <option value="Amarillo SINIIGA">Amarillo oficial (SINIIGA)</option>
+                  <option value="Blanco">Blanco interno</option>
+                  <option value="Verde">Verde</option>
+                  <option value="Azul">Azul</option>
+                  <option value="Rojo">Rojo (Reposición)</option>
+                  <option value="Sin arete">Sin arete colocado</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="fieldEstadoArete">Estado del arete</label>
+                <select id="fieldEstadoArete" class="form-select">
+                  <option value="Correcto">Puesto correctamente</option>
+                  <option value="Pendiente colocar">Pendiente de colocar</option>
+                  <option value="Caído / Reponer">Arete caído (Reponer)</option>
+                  <option value="Reareteado">Reareteado (Nuevo número)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bloque 3: Etapa, Nacimiento y Peso -->
+          <div class="fieldset-card">
+            <div class="fieldset-header">Etapa productiva, origen y peso</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label" for="fieldCategoria">Categoría *</label>
+                <select id="fieldCategoria" class="form-select" required></select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="fieldFechaNac">Fecha de nacimiento</label>
+                <input type="date" id="fieldFechaNac" class="form-input" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="fieldRaza">Raza, color o señas</label>
+                <input type="text" id="fieldRaza" class="form-input" placeholder="Ej. Suizo Pardo, Brahman Rojo..." />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="fieldPesoActual">Peso actual (kg)</label>
+                <input type="number" step="0.1" id="fieldPesoActual" class="form-input" placeholder="Ej. 380" />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label" for="fieldOrigen">Origen del animal</label>
+                <select id="fieldOrigen" class="form-select">
+                  <option value="Nacido en rancho">Nacido en el rancho</option>
+                  <option value="Comprado">Comprado / Ingreso externo</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bloque 4: Genealogía Materna -->
+          <div class="fieldset-card">
+            <div class="fieldset-header">Genealogía materna (¿Quién es su madre?)</div>
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="form-label" for="fieldMadreSelect">Seleccionar vaca madre registrada</label>
+                <select id="fieldMadreSelect" class="form-select" onchange="RanchoApp.alCambiarSelectMadre(this.value)"></select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="fieldMadreFierro">Fierro de la madre</label>
+                <select id="fieldMadreFierro" class="form-select">
+                  <option value="F">Fierro F</option>
+                  <option value="H">Fierro H</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="fieldMadreNumero">Número de la madre</label>
+                <input type="text" id="fieldMadreNumero" class="form-input input-mono" placeholder="Ej. 15" />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label" for="fieldMadreArete">Arete oficial de la madre</label>
+                <input type="text" id="fieldMadreArete" class="form-input input-mono" placeholder="Ej. MX-260015" />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label" for="fieldNotas">Observaciones</label>
+                <textarea id="fieldNotas" rows="2" class="form-textarea" placeholder="Notas de manejo, señas particulares o historial..."></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAnimal')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar registro</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =======================================================================
+       MODAL 2: DAR DE BAJA POR VENTA O POR MUERTE
+       ======================================================================= -->
+  <div id="modalBaja" class="modal-backdrop">
+    <div class="modal-content" style="max-width:560px;">
+      <div class="modal-header">
+        <h2>Registrar salida (Venta o baja por muerte)</h2>
+        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalBaja')" aria-label="Cerrar">&times;</button>
+      </div>
+
+      <form onsubmit="RanchoApp.confirmarBajaAnimal(event)">
+        <div class="modal-body">
+          <input type="hidden" id="bajaAnimalId" />
+          <div id="bajaAnimalInfo" class="selected-animal-banner"></div>
+
+          <div class="fieldset-card">
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label" for="bajaTipo">Tipo de baja *</label>
+                <select id="bajaTipo" class="form-select" onchange="RanchoApp.toggleCamposVentaBaja(this.value)" required>
+                  <option value="Vendido">Salida por venta</option>
+                  <option value="Muerto">Baja por muerte</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="bajaFecha">Fecha *</label>
+                <input type="date" id="bajaFecha" class="form-input" required />
+              </div>
+
+              <div class="form-group full-width">
+                <label id="labelMotivoBaja" class="form-label" for="bajaMotivo">Concepto / Causa *</label>
+                <input type="text" id="bajaMotivo" class="form-input" placeholder="Ej. Venta de engorda / Causa de defunción" required />
+              </div>
+            </div>
+          </div>
+
+          <div id="bloqueCamposVenta" class="fieldset-card sale-fieldset">
+            <div class="fieldset-header">Datos de venta</div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label" for="bajaComprador">Comprador *</label>
+                <input type="text" id="bajaComprador" class="form-input" placeholder="¿A quién se le vendió?" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="bajaGuiaReemo">Guía REEMO</label>
+                <input type="text" id="bajaGuiaReemo" class="form-input input-mono" placeholder="Ej. REEMO-40219" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="bajaPeso">Peso a la venta (kg)</label>
+                <input type="number" step="0.1" id="bajaPeso" class="form-input" placeholder="Ej. 380" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="bajaPrecio">Monto de venta ($)</label>
+                <input type="number" step="0.01" id="bajaPrecio" class="form-input" placeholder="Ej. 24700" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group full-width">
+            <label class="form-label" for="bajaNotas">Observaciones adicionales</label>
+            <textarea id="bajaNotas" rows="2" class="form-textarea" placeholder="Anotaciones adicionales de la operación..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalBaja')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar baja</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =======================================================================
+       MODAL 3: FICHA DETALLADA DEL ANIMAL
+       ======================================================================= -->
+  <div id="modalFicha" class="modal-backdrop">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Expediente individual del animal</h2>
+        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalFicha')" aria-label="Cerrar">&times;</button>
+      </div>
+      <div id="fichaAnimalBody" class="modal-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalFicha')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =======================================================================
+       MODAL 4: REGISTRO DE VACUNAS, DESPARASITACIÓN, PESAJES Y DESTETES
+       ======================================================================= -->
+  <div id="modalSanidad" class="modal-backdrop">
+    <div class="modal-content" style="max-width:600px;">
+      <div class="modal-header">
+        <h2>Registrar manejo sanitario o pesaje</h2>
+        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalSanidad')" aria-label="Cerrar">&times;</button>
+      </div>
+
+      <form onsubmit="RanchoApp.guardarEventoSanidad(event)">
+        <div class="modal-body">
+          <div class="fieldset-card">
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="form-label" for="sanidadAlcance">Destinatario (Individual o lote por fierro) *</label>
+                <select id="sanidadAlcance" class="form-select" required></select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="sanidadTipo">Tipo de manejo *</label>
+                <select id="sanidadTipo" class="form-select" required>
+                  <option value="Vacunación">Vacunación</option>
+                  <option value="Desparasitación">Desparasitación / Vitaminas</option>
+                  <option value="Pesaje">Control de peso</option>
+                  <option value="Destete">Destete de becerro(a)</option>
+                  <option value="Palpación / Reproducción">Palpación / Diagnóstico gestación</option>
+                  <option value="Tratamiento Curativo">Tratamiento médico</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="sanidadFecha">Fecha de aplicación *</label>
+                <input type="date" id="sanidadFecha" class="form-input" required />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label" for="sanidadProducto">Vacuna, producto o concepto *</label>
+                <input type="text" id="sanidadProducto" class="form-input" placeholder="Ej. Bacterina Triple, Derriengue, Ivermectina + ADE..." required />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="sanidadDosis">Dosis aplicada</label>
+                <input type="text" id="sanidadDosis" class="form-input" placeholder="Ej. 5 ml subcutáneo" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="sanidadPeso">Peso registrado (kg)</label>
+                <input type="number" step="0.1" id="sanidadPeso" class="form-input" placeholder="Opcional" />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label" for="sanidadProxima">Próximo refuerzo programado</label>
+                <input type="date" id="sanidadProxima" class="form-input" />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label" for="sanidadNotas">Observaciones</label>
+                <input type="text" id="sanidadNotas" class="form-input" placeholder="Anotaciones del lote o tratamiento..." />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalSanidad')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar manejo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =======================================================================
+       MODAL 5: CONFIGURACIÓN DE PROPIETARIOS Y BASE EN LA NUBE
+       ======================================================================= -->
+  <div id="modalConfig" class="modal-backdrop">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Configuración del rancho y sincronización en la nube</h2>
+        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalConfig')" aria-label="Cerrar">&times;</button>
+      </div>
+
+      <form onsubmit="RanchoApp.guardarConfiguracion(event)">
+        <div class="modal-body">
+          <div class="fieldset-card">
+            <div class="fieldset-header">Datos del rancho y propietarios</div>
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="form-label" for="cfgNombreRancho">Nombre del rancho</label>
+                <input type="text" id="cfgNombreRancho" class="form-input" placeholder="Ej. Rancho El Progreso" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="cfgPropietarioF">Propietario del Fierro F</label>
+                <input type="text" id="cfgPropietarioF" class="form-input" placeholder="Nombre del dueño F" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="cfgPropietarioH">Propietario del Fierro H</label>
+                <input type="text" id="cfgPropietarioH" class="form-input" placeholder="Nombre del dueño H" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="cfgEdadDestete">Edad de aviso para destete (meses)</label>
+                <input type="number" id="cfgEdadDestete" class="form-input" min="4" max="14" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="cfgPinAcceso">Clave / PIN de acceso privado</label>
+                <input type="password" id="cfgPinAcceso" class="form-input input-mono" placeholder="Ej. 1234" />
+              </div>
+            </div>
+          </div>
+
+          <div class="fieldset-card">
+            <div class="fieldset-header">Base de datos en la nube (Firebase Firestore)</div>
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="cloud-toggle-label">
+                  <input type="checkbox" id="cfgCloudEnabled" />
+                  <span>Activar sincronización automática en la nube</span>
+                </label>
+                <p class="form-help-text">
+                  Permite respaldar en tiempo real entre el celular y la computadora. Cuando trabajas en el corral sin internet, los cambios se guardan localmente y suben al recuperar señal.
+                </p>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="cfgFirebaseProjectId">Firebase Project ID</label>
+                <input type="text" id="cfgFirebaseProjectId" class="form-input input-mono" placeholder="mi-rancho-ganadero" />
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="cfgRanchoCode">Identificador del rancho</label>
+                <input type="text" id="cfgRanchoCode" class="form-input input-mono" placeholder="RANCHO-FH-01" />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="form-label" for="cfgFirebaseApiKey">Firebase Web API Key</label>
+                <input type="text" id="cfgFirebaseApiKey" class="form-input input-mono" placeholder="AIzaSy..." />
+              </div>
+            </div>
+          </div>
+
+          <div class="fieldset-card">
+            <div class="fieldset-header">Copia de seguridad manual y reinicio</div>
+            <div class="backup-actions-row">
+              <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.descargarRespaldoJSON()">
+                Descargar respaldo (.json)
+              </button>
+
+              <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+                Restaurar respaldo
+                <input type="file" accept=".json" style="display:none;" onchange="RanchoApp.importarRespaldoJSON(this)" />
+              </label>
+
+              <button type="button" class="btn btn-danger-soft btn-sm" onclick="RanchoApp.vaciarDatosDeEjemplo()">
+                Limpiar registros de prueba
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalConfig')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar configuración</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =======================================================================
+       MODAL 6: ACCESO PRIVADO PARA PROPIETARIOS (SEPARADO DEL MODO PORTAFOLIO)
+       ======================================================================= -->
+  <div id="modalAccesoPrivado" class="modal-backdrop">
+    <div class="modal-content" style="max-width:460px;">
+      <div class="modal-header">
+        <h2>Acceso privado al rancho</h2>
+        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')" aria-label="Cerrar">&times;</button>
+      </div>
+
+      <form onsubmit="RanchoApp.confirmarAccesoPrivado(event)">
+        <div class="modal-body">
+          <div class="fieldset-card">
+            <p class="form-help-text" style="margin-top:0;margin-bottom:0.85rem;">
+              Actualmente estás en la <strong>Vista Portafolio (Datos de demostración)</strong> para que los visitantes de tu portafolio no vean la información real de tu rancho. Ingresa tu clave de propietario para cargar tu padrón privado.
+            </p>
+
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="form-label" for="inputPinAcceso">Clave / PIN del rancho *</label>
+                <input
+                  type="password"
+                  id="inputPinAcceso"
+                  class="form-input input-mono"
+                  placeholder="Ingresa tu clave (por defecto: 1234)"
+                  required
+                />
+              </div>
+
+              <div class="form-group full-width">
+                <label class="cloud-toggle-label">
+                  <input type="checkbox" id="inputRecordarSesion" />
+                  <span>Mantener sesión privada abierta en este dispositivo</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')">Seguir en modo portafolio</button>
+          <button type="submit" class="btn btn-primary">Desbloquear rancho real</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- CONTENEDOR DE NOTIFICACIONES -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- SCRIPTS DEL SISTEMA -->
+  <script src="./js/validations.js"></script>
+  <script src="./js/db.js"></script>
+  <script src="./js/exports.js"></script>
+  <script src="./js/app.js"></script>
+</body>
+</html>

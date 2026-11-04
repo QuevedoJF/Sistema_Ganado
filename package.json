@@ -1,0 +1,8 @@
+{
+  "name": "control-ganadero-fierros-fh",
+  "version": "1.0.0",
+  "description": "Sistema de gestión y control ganadero en la nube y modo offline para Fierro F y Fierro H, con control anti-duplicados de números y aretes, genealogía materna, sanidad, bajas y exportación en tablas PDF y Excel.",
+  "scripts": {
+    "start": "npx --yes serve . -l 3000"
+  }
+}
