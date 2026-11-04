@@ -33,9 +33,14 @@ window.RanchoApp = {
         location.hostname === 'localhost' ||
         location.hostname === '127.0.0.1')
     ) {
-      navigator.serviceWorker.register('./sw.js').catch((err) => {
-        console.warn('SW no registrado en modo archivo local:', err);
-      });
+      navigator.serviceWorker
+        .register('./sw.js')
+        .then((reg) => {
+          reg.update();
+        })
+        .catch((err) => {
+          console.warn('SW no registrado en modo archivo local:', err);
+        });
     }
   },
 
