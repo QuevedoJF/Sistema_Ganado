@@ -24,9 +24,40 @@
 </head>
 <body>
 
+  <!-- BARRA SUPERIOR PARA CELULAR (SOLO MÓVIL) -->
+  <header class="mobile-topbar mobile-only">
+    <div class="mobile-topbar-brand">
+      <button type="button" class="btn-menu-drawer" onclick="RanchoApp.toggleSidebar(true)" aria-label="Abrir menú">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="mobile-brand-emblem" aria-hidden="true">F·H</div>
+      <div class="mobile-brand-meta">
+        <span class="mobile-brand-title" id="mobileRanchoNombre">Rancho Ganadero</span>
+        <span class="mobile-brand-status" id="mobileSessionStatus">Vista Portafolio</span>
+      </div>
+    </div>
+
+    <!-- Filtro rápido de fierro en la barra móvil -->
+    <div class="mobile-fierro-chips">
+      <button id="mChipAll" class="m-chip active-all" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">Todo</button>
+      <button id="mChipF" class="m-chip" onclick="RanchoApp.cambiarFiltroFierro('F')">Fierro F</button>
+      <button id="mChipH" class="m-chip" onclick="RanchoApp.cambiarFiltroFierro('H')">Fierro H</button>
+    </div>
+  </header>
+
+  <!-- TELÓN DE FONDO PARA EL MENÚ LATERAL EN MÓVIL -->
+  <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="RanchoApp.toggleSidebar(false)"></div>
+
   <div class="app-shell">
-    <!-- BARRA LATERAL DE NAVEGACIÓN Y CONTROL DE FIERROS -->
-    <aside class="sidebar">
+    <!-- BARRA LATERAL (DRAWER EN CELULAR / FIJA EN LAPTOP) -->
+    <aside id="mainSidebar" class="sidebar">
+      <div class="sidebar-top-row mobile-only">
+        <span class="sidebar-drawer-title">Menú de gestión</span>
+        <button type="button" class="btn-close-sidebar" onclick="RanchoApp.toggleSidebar(false)" aria-label="Cerrar">&times;</button>
+      </div>
+
       <div class="sidebar-brand">
         <div class="brand-emblem" aria-hidden="true">
           <span class="emblem-f">F</span>
@@ -175,6 +206,48 @@
       <!-- CONTENEDOR DE LA TABLA ACTIVA -->
       <main id="mainViewContainer" class="ledger-section"></main>
     </div>
+
+    <!-- BARRA DE NAVEGACIÓN INFERIOR PARA CELULAR (SOLO MÓVIL) -->
+    <nav class="mobile-bottom-bar mobile-only" aria-label="Navegación móvil">
+      <button class="m-bottom-tab active" data-tab="inventario" onclick="RanchoApp.cambiarTab('inventario')">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="3" y="4" width="14" height="12" rx="2" />
+          <path d="M3 8h14M8 8v8" />
+        </svg>
+        <span>Padrón</span>
+      </button>
+
+      <button class="m-bottom-tab" data-tab="genealogia" onclick="RanchoApp.cambiarTab('genealogia')">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="6" cy="6" r="2.5" />
+          <circle cx="14" cy="14" r="2.5" />
+          <path d="M6 8.5v3a2.5 2.5 0 002.5 2.5h3" />
+        </svg>
+        <span>Madres</span>
+      </button>
+
+      <button class="m-bottom-tab" data-tab="sanidad" onclick="RanchoApp.cambiarTab('sanidad')">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M10 4v12M4 10h12" stroke-linecap="round" />
+        </svg>
+        <span>Sanidad</span>
+      </button>
+
+      <button class="m-bottom-tab" data-tab="bajas" onclick="RanchoApp.cambiarTab('bajas')">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M4 10h11M11 6l4 4-4 4" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span>Bajas</span>
+      </button>
+
+      <button class="m-bottom-tab" onclick="RanchoApp.toggleSidebar(true)">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="10" cy="10" r="3" />
+          <path d="M10 2v2M10 16v2M2 10h2M16 10h2" stroke-linecap="round" />
+        </svg>
+        <span>Menú</span>
+      </button>
+    </nav>
   </div>
 
   <!-- =======================================================================

@@ -53,12 +53,24 @@ window.RanchoApp = {
 
   cambiarFiltroFierro(fierro) {
     this.filtroFierro = fierro;
+    this.toggleSidebar(false);
     this.renderTodo();
   },
 
   cambiarTab(tab) {
     this.tabActiva = tab;
+    this.toggleSidebar(false);
     this.renderTodo();
+  },
+
+  toggleSidebar(abrir = null) {
+    const sb = document.getElementById('mainSidebar');
+    const bd = document.getElementById('sidebarBackdrop');
+    if (!sb) return;
+    const estaAbierto = sb.classList.contains('open');
+    const nuevoEstado = abrir !== null ? abrir : !estaAbierto;
+    sb.classList.toggle('open', nuevoEstado);
+    if (bd) bd.classList.toggle('open', nuevoEstado);
   },
 
   obtenerAnimalesFiltrados(forzarEstatus = null) {
@@ -141,6 +153,11 @@ window.RanchoApp = {
         : 'Entrar al rancho privado';
     }
 
+    const mobTitle = document.getElementById('mobileRanchoNombre');
+    const mobStatus = document.getElementById('mobileSessionStatus');
+    if (mobTitle) mobTitle.textContent = config.nombreRancho;
+    if (mobStatus) mobStatus.textContent = esReal ? 'Rancho Privado' : 'Vista Portafolio';
+
     if (syncDot && syncText) {
       syncText.textContent = cloudCfg.statusText;
       syncDot.className = 'sync-dot';
@@ -191,6 +208,13 @@ window.RanchoApp = {
     if (btnH) {
       btnH.className = `fierro-option ${this.filtroFierro === 'H' ? 'active-h' : ''}`;
     }
+
+    const mAll = document.getElementById('mChipAll');
+    const mF = document.getElementById('mChipF');
+    const mH = document.getElementById('mChipH');
+    if (mAll) mAll.className = `m-chip ${this.filtroFierro === 'TODOS' ? 'active-all' : ''}`;
+    if (mF) mF.className = `m-chip ${this.filtroFierro === 'F' ? 'active-f' : ''}`;
+    if (mH) mH.className = `m-chip ${this.filtroFierro === 'H' ? 'active-h' : ''}`;
 
     const setTxt = (id, val) => {
       const el = document.getElementById(id);
@@ -400,6 +424,10 @@ window.RanchoApp = {
     document.querySelectorAll('.nav-tab').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.tab === this.tabActiva);
     });
+
+    document.querySelectorAll('.m-bottom-tab').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.tab === this.tabActiva);
+    });
   },
 
   renderVistaPrincipal() {
@@ -553,6 +581,75 @@ window.RanchoApp = {
             })
             .join('');
 
+    const cardsMobileHTML =
+      lista.length === 0
+        ? `<div class="empty-state-card">No hay registros con los filtros seleccionados.</div>`
+        : lista
+            .map((a) => {
+              const edad = window.RanchoValidations.calcularEdad(
+                a.fechaNacimiento,
+                a.fechaBaja || null
+              );
+              const tieneMadre = a.madreNumero || a.madreArete;
+              const areteMal = !a.arete || a.arete === 'S/N' || a.estadoArete !== 'Correcto';
+              const numCrias =
+                a.sexo === 'Hembra'
+                  ? window.RanchoDB.state.animales.filter(
+                      (c) =>
+                        c.madreId === a.id ||
+                        (c.madreFierro === a.fierro &&
+                          c.madreNumero &&
+                          String(c.madreNumero).toUpperCase() === String(a.numero).toUpperCase())
+                    ).length
+                  : 0;
+
+              return `
+                <div class="animal-card-mobile ${a.estatus !== 'Activo' ? 'card-baja' : ''}">
+                  <div class="acm-header">
+                    <div class="acm-identity">
+                      <span class="stamp-fierro stamp-fierro-${a.fierro}">${a.fierro}</span>
+                      <span class="acm-num">#${a.numero}</span>
+                      <span class="badge-sexo badge-sexo-${a.sexo}">${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}</span>
+                    </div>
+                    <span class="arete-code ${areteMal ? 'sin-arete' : ''}">${a.arete || 'S/N'}</span>
+                  </div>
+
+                  <div class="acm-body">
+                    <div class="acm-row">
+                      <span class="acm-cat">${a.categoria || ''}${a.razaColor ? ' · ' + a.razaColor : ''}</span>
+                      <span class="acm-weight">${a.pesoActual ? a.pesoActual + ' kg' : '—'}</span>
+                    </div>
+                    <div class="acm-row acm-sub">
+                      <span><strong>Edad:</strong> ${edad.texto}</span>
+                      ${tieneMadre ? `<span class="acm-madre-tag" onclick="RanchoApp.verMadreDeAnimal('${a.id}')">Madre: F${a.madreFierro || a.fierro} #${a.madreNumero || '?'}</span>` : '<span style="color:#78847c;">Sin madre</span>'}
+                    </div>
+                    ${numCrias > 0 ? `<div class="crias-count-note">🍼 ${numCrias} ${numCrias === 1 ? 'cría registrada' : 'crías registradas'}</div>` : ''}
+                    ${a.estatus !== 'Activo' ? `
+                      <div class="acm-baja-info">
+                        <strong>${a.estatus}:</strong> ${a.fechaBaja || ''}
+                        ${a.estatus === 'Vendido' ? ` · Comprador: <strong>${a.compradorDestino || 'No reg.'}</strong> ${a.precioVenta ? '($' + a.precioVenta + ')' : ''}` : ` · Causa: ${a.motivoBaja || ''}`}
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  <div class="acm-actions">
+                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${a.id}')">Expediente</button>
+                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${a.id}')">Editar</button>
+                    ${a.sexo === 'Hembra' && a.estatus === 'Activo' && !(a.categoria || '').includes('Becerr') ? `
+                      <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${a.id}')">+ Cría</button>
+                    ` : ''}
+                    ${a.estatus === 'Activo' ? `
+                      <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.abrirModalBaja('${a.id}')">Vender / Baja</button>
+                    ` : `
+                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${a.id}')">Datos venta</button>
+                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.confirmarReactivar('${a.id}')">Reactivar</button>
+                    `}
+                  </div>
+                </div>
+              `;
+            })
+            .join('');
+
     container.innerHTML = `
       <div class="ledger-card">
         <div class="ledger-toolbar">
@@ -583,7 +680,7 @@ window.RanchoApp = {
           </div>
         </div>
 
-        <div class="table-scroll">
+        <div class="table-scroll desktop-only">
           <table class="ganado-table">
             <thead>
               <tr>
@@ -601,6 +698,10 @@ window.RanchoApp = {
               ${filasHTML}
             </tbody>
           </table>
+        </div>
+
+        <div class="mobile-cards-container mobile-only">
+          ${cardsMobileHTML}
         </div>
       </div>
     `;
@@ -649,6 +750,43 @@ window.RanchoApp = {
             })
             .join('');
 
+    const cardsSanidadMobileHTML =
+      eventosFiltrados.length === 0
+        ? `<div class="empty-state-card">No hay manejos sanitarios ni pesajes registrados.</div>`
+        : eventosFiltrados
+            .map((ev) => {
+              const anm = animales.find((a) => a.id === ev.animalId);
+              return `
+                <div class="animal-card-mobile">
+                  <div class="acm-header">
+                    <div class="acm-identity">
+                      ${
+                        anm
+                          ? `<span class="stamp-fierro stamp-fierro-${anm.fierro}">${anm.fierro}</span>
+                             <span class="acm-num">#${anm.numero}</span>`
+                          : '<span>Eliminado</span>'
+                      }
+                      <span class="badge-status badge-status-Activo">${ev.tipo}</span>
+                    </div>
+                    <span style="font-family:var(--font-mono);font-size:0.78rem;color:#525e56;">${ev.fecha}</span>
+                  </div>
+                  <div class="acm-body">
+                    <div style="font-weight:700;font-size:0.9rem;">${ev.producto}</div>
+                    <div class="acm-row acm-sub" style="margin-top:4px;">
+                      <span>Dosis: ${ev.dosis || '—'}</span>
+                      <span>Peso: ${ev.pesoKg ? ev.pesoKg + ' kg' : '—'}</span>
+                      <span>Refuerzo: ${ev.proximaFecha || '—'}</span>
+                    </div>
+                    ${ev.notas ? `<div style="font-size:0.76rem;color:#78847c;margin-top:4px;">${ev.notas}</div>` : ''}
+                  </div>
+                  <div class="acm-actions" style="justify-content:flex-end;">
+                    <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.borrarEventoSanitario('${ev.id}')">Eliminar</button>
+                  </div>
+                </div>
+              `;
+            })
+            .join('');
+
     container.innerHTML = `
       <div class="ledger-card">
         <div class="ledger-toolbar">
@@ -663,7 +801,7 @@ window.RanchoApp = {
           </div>
         </div>
 
-        <div class="table-scroll">
+        <div class="table-scroll desktop-only">
           <table class="ganado-table">
             <thead>
               <tr>
@@ -681,6 +819,10 @@ window.RanchoApp = {
               ${filas}
             </tbody>
           </table>
+        </div>
+
+        <div class="mobile-cards-container mobile-only">
+          ${cardsSanidadMobileHTML}
         </div>
       </div>
     `;
@@ -752,6 +894,72 @@ window.RanchoApp = {
             })
             .join('');
 
+    const cardsGenealogiaMobileHTML =
+      hembras.length === 0
+        ? `<div class="empty-state-card">No hay vacas reproductoras registradas en este filtro.</div>`
+        : hembras
+            .map((vaca) => {
+              const crias = animales.filter(
+                (c) =>
+                  c.madreId === vaca.id ||
+                  (c.madreFierro === vaca.fierro &&
+                    c.madreNumero &&
+                    String(c.madreNumero).toUpperCase() === String(vaca.numero).toUpperCase())
+              );
+
+              const criasHTML =
+                crias.length === 0
+                  ? `<span style="color:#78847c;font-size:0.78rem;">Sin crías registradas aún</span>`
+                  : `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">` +
+                    crias
+                      .map(
+                        (c) => `
+                        <div style="padding:3px 7px;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;display:inline-flex;align-items:center;gap:5px;font-size:0.75rem;">
+                          <strong style="font-family:var(--font-mono);">#${c.numero}</strong>
+                          <span class="badge-sexo badge-sexo-${c.sexo}" style="font-size:0.65rem;padding:0 3px;">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
+                          <span style="font-family:var(--font-mono);font-size:0.7rem;color:#525e56;">${c.arete || 'S/N'}</span>
+                          <span class="badge-status badge-status-${c.estatus}" style="font-size:0.65rem;padding:0 3px;">${c.estatus}</span>
+                        </div>
+                      `
+                      )
+                      .join('') +
+                    `</div>`;
+
+              return `
+                <div class="animal-card-mobile">
+                  <div class="acm-header">
+                    <div class="acm-identity">
+                      <span class="stamp-fierro stamp-fierro-${vaca.fierro}">${vaca.fierro}</span>
+                      <span class="acm-num">#${vaca.numero}</span>
+                      <span class="badge-sexo badge-sexo-Hembra">♀ Vaca Madre</span>
+                    </div>
+                    <span class="badge-status badge-status-${vaca.estatus}">${vaca.estatus}</span>
+                  </div>
+
+                  <div class="acm-body">
+                    <div class="acm-row">
+                      <span>Arete: <strong class="arete-code" style="font-size:0.78rem;">${vaca.arete || 'S/N'}</strong></span>
+                      <span>Raza: <strong>${vaca.raza || 'Común'}</strong></span>
+                    </div>
+                    <div class="acm-row acm-sub">
+                      <span>Etapa: ${vaca.categoria || 'Vaca'}</span>
+                      <span>Total crías: <strong>${crias.length}</strong></span>
+                    </div>
+                    <div style="margin-top:6px;">
+                      <div style="font-size:0.74rem;font-weight:600;color:var(--ink-secondary);">Historial de partos:</div>
+                      ${criasHTML}
+                    </div>
+                  </div>
+
+                  <div class="acm-actions">
+                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${vaca.id}')">Expediente</button>
+                    <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${vaca.id}')">+ Registrar parto / cría</button>
+                  </div>
+                </div>
+              `;
+            })
+            .join('');
+
     container.innerHTML = `
       <div class="ledger-card">
         <div class="ledger-toolbar">
@@ -761,7 +969,7 @@ window.RanchoApp = {
           </div>
         </div>
 
-        <div class="table-scroll">
+        <div class="table-scroll desktop-only">
           <table class="ganado-table">
             <thead>
               <tr>
@@ -776,6 +984,10 @@ window.RanchoApp = {
               ${filas}
             </tbody>
           </table>
+        </div>
+
+        <div class="mobile-cards-container mobile-only">
+          ${cardsGenealogiaMobileHTML}
         </div>
       </div>
     `;
