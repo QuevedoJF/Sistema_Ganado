@@ -1845,6 +1845,7 @@ body {
   /* Resumen: carrusel horizontal que no empuja la pantalla */
   .summary-strip {
     display: flex;
+    flex-wrap: nowrap;
     gap: 0.5rem;
     overflow-x: auto;
     background: transparent;
