@@ -14,7 +14,8 @@ window.RanchoExports = {
   prepararFilasTabla(animales, config) {
     return animales.map((a) => {
       const edadInfo = window.RanchoValidations.calcularEdad(a.fechaNacimiento, a.fechaBaja || null);
-      const prop = a.fierro === 'F' ? config.propietarioF : config.propietarioH;
+      const f = window.RanchoDB.getFierro(a.fierro);
+      const prop = f ? f.propietario : '';
       return {
         Fierro: `Fierro ${a.fierro}`,
         Propietario: prop,
@@ -41,7 +42,7 @@ window.RanchoExports = {
   },
 
   /**
-   * Descarga un archivo Excel (.xlsx) con tablas separadas por Fierro F, Fierro H, Bajas y Sanidad
+   * Descarga un archivo Excel (.xlsx) con una hoja por fierro (activos), Bajas y Sanidad
    */
   exportarExcel(animalesFiltrados, etiquetaFiltro = 'General') {
     const state = window.RanchoDB.state;
@@ -65,25 +66,21 @@ window.RanchoExports = {
     this.ajustarAnchoColumnas(wsVista);
     window.XLSX.utils.book_append_sheet(wb, wsVista, `Tabla_${etiquetaFiltro}`.slice(0, 31));
 
-    // 2. Hoja exclusiva Fierro F (Activos)
-    const activosF = todos.filter((a) => a.fierro === 'F' && a.estatus === 'Activo');
-    const wsF = window.XLSX.utils.json_to_sheet(
-      activosF.length > 0
-        ? this.prepararFilasTabla(activosF, config)
-        : [{ Mensaje: 'Sin animales activos en Fierro F' }]
-    );
-    this.ajustarAnchoColumnas(wsF);
-    window.XLSX.utils.book_append_sheet(wb, wsF, 'Fierro_F_Activos');
-
-    // 3. Hoja exclusiva Fierro H (Activos)
-    const activosH = todos.filter((a) => a.fierro === 'H' && a.estatus === 'Activo');
-    const wsH = window.XLSX.utils.json_to_sheet(
-      activosH.length > 0
-        ? this.prepararFilasTabla(activosH, config)
-        : [{ Mensaje: 'Sin animales activos en Fierro H' }]
-    );
-    this.ajustarAnchoColumnas(wsH);
-    window.XLSX.utils.book_append_sheet(wb, wsH, 'Fierro_H_Activos');
+    // 2. Una hoja por cada fierro / dueño (solo activos)
+    const usados = new Set();
+    window.RanchoDB.getFierros().forEach((f) => {
+      const activos = todos.filter((a) => a.fierro === f.codigo && a.estatus === 'Activo');
+      const ws = window.XLSX.utils.json_to_sheet(
+        activos.length > 0
+          ? this.prepararFilasTabla(activos, config)
+          : [{ Mensaje: `Sin animales activos en Fierro ${f.codigo}` }]
+      );
+      this.ajustarAnchoColumnas(ws);
+      let nombre = `Fierro_${f.codigo}_Activos`.slice(0, 31);
+      while (usados.has(nombre)) nombre = (nombre + '_').slice(0, 31);
+      usados.add(nombre);
+      window.XLSX.utils.book_append_sheet(wb, ws, nombre);
+    });
 
     // 4. Hoja de Ventas y Bajas por Muerte
     const bajas = todos.filter((a) => a.estatus !== 'Activo');
@@ -117,7 +114,7 @@ window.RanchoExports = {
     this.ajustarAnchoColumnas(wsSan);
     window.XLSX.utils.book_append_sheet(wb, wsSan, 'Sanidad_y_Pesajes');
 
-    window.XLSX.writeFile(wb, `Control_Ganadero_F_y_H_${fechaHoy}.xlsx`);
+    window.XLSX.writeFile(wb, `Control_Ganadero_${fechaHoy}.xlsx`);
   },
 
   ajustarAnchoColumnas(ws) {
@@ -176,6 +173,7 @@ window.RanchoExports = {
     }
 
     const { jsPDF } = window.jspdf;
+    const hexARgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
 
     // Encabezado del Rancho
@@ -189,16 +187,24 @@ window.RanchoExports = {
 
     doc.setFontSize(9.5);
     doc.setFont('helvetica', 'normal');
-    const totalF = animalesFiltrados.filter((a) => a.fierro === 'F').length;
-    const totalH = animalesFiltrados.filter((a) => a.fierro === 'H').length;
+    const fierros = window.RanchoDB.getFierros();
+    const resumenFierros = fierros
+      .map((f) => {
+        const n = animalesFiltrados.filter((a) => a.fierro === f.codigo).length;
+        return n > 0 ? `Fierro ${f.codigo} (${f.propietario}): ${n}` : '';
+      })
+      .filter(Boolean)
+      .join('  ·  ');
     const totalHembras = animalesFiltrados.filter((a) => a.sexo === 'Hembra').length;
     const totalMachos = animalesFiltrados.filter((a) => a.sexo === 'Macho').length;
 
     doc.text(
-      `Fecha de corte: ${fechaHoy}   |   Fierro F (${config.propietarioF}): ${totalF} cab.   |   Fierro H (${config.propietarioH}): ${totalH} cab.   |   Hembras: ${totalHembras} / Machos: ${totalMachos}   |   Total listado: ${animalesFiltrados.length}`,
+      `Fecha de corte: ${fechaHoy}   |   Hembras: ${totalHembras} / Machos: ${totalMachos}   |   Total listado: ${animalesFiltrados.length}`,
       14,
-      19
+      17
     );
+    doc.setFontSize(8.5);
+    doc.text(doc.splitTextToSize(resumenFierros || 'Sin animales en el listado', 250)[0], 14, 22.5);
 
     const tableBody = animalesFiltrados.map((a) => {
       const edad = window.RanchoValidations.calcularEdad(a.fechaNacimiento, a.fechaBaja || null);
@@ -254,14 +260,12 @@ window.RanchoExports = {
       },
       didParseCell: function (data) {
         if (data.section === 'body' && data.column.index === 0) {
-          const val = String(data.cell.raw || '');
-          if (val.includes('Fierro F')) {
-            data.cell.styles.fillColor = [220, 252, 231];
-            data.cell.styles.textColor = [20, 83, 45];
-            data.cell.styles.fontStyle = 'bold';
-          } else if (val.includes('Fierro H')) {
-            data.cell.styles.fillColor = [254, 243, 199];
-            data.cell.styles.textColor = [120, 53, 15];
+          const animal = animalesFiltrados[data.row.index];
+          const f = animal && window.RanchoDB.getFierro(animal.fierro);
+          if (f) {
+            const tono = window.RanchoDB.TONOS[f.tono] || window.RanchoDB.TONOS[0];
+            data.cell.styles.fillColor = hexARgb(tono.fondo);
+            data.cell.styles.textColor = hexARgb(tono.texto);
             data.cell.styles.fontStyle = 'bold';
           }
         }
@@ -269,6 +273,6 @@ window.RanchoExports = {
     });
 
     const fechaArchivo = new Date().toISOString().slice(0, 10);
-    doc.save(`Tabla_Ganado_Rancho_FH_${fechaArchivo}.pdf`);
+    doc.save(`Tabla_Ganado_${fechaArchivo}.pdf`);
   }
 };

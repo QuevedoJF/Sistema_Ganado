@@ -13,16 +13,20 @@ window.RanchoDB = {
   // 'DEMO' (visitantes del portafolio) | 'REAL' (propietarios autenticados)
   sessionMode: 'DEMO',
 
+  // El PIN nunca se guarda en texto plano: solo su hash PBKDF2-SHA256 con sal aleatoria.
+  // Nota: esto protege el PIN guardado, pero la protección real de los datos en la nube
+  // requiere autenticación del lado del servidor (Firebase Auth + reglas de Firestore).
   authConfig: {
-    pinHash: '1234', // Clave inicial que el dueño puede cambiar en Configuración
+    pinSalt: '',
+    pinHashV2: '',
+    pinIterations: 150000,
     rememberSession: false
   },
 
   state: {
     config: {
       nombreRancho: 'Rancho Demostración (Vista Portafolio)',
-      propietarioF: 'Productor A (Fierro F)',
-      propietarioH: 'Productor B (Fierro H)',
+      fierros: [],
       edadDesteteMeses: 7,
       updatedAt: new Date().toISOString()
     },
@@ -90,9 +94,281 @@ window.RanchoDB = {
     localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(this.authConfig));
   },
 
-  verificarPinPropietario(pinIngresado) {
+  /** true si existe un PIN (hasheado o heredado en texto plano de versiones anteriores). */
+  tienePinConfigurado() {
+    return !!(this.authConfig.pinHashV2 || this.authConfig.pinHash);
+  },
+
+  async _derivarHashPin(pin, saltB64, iterations) {
+    if (!window.crypto || !window.crypto.subtle) {
+      throw new Error('Este navegador no permite cifrar el PIN (se requiere HTTPS).');
+    }
+    const enc = new TextEncoder();
+    const salt = Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0));
+    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, [
+      'deriveBits'
+    ]);
+    const bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+      keyMaterial,
+      256
+    );
+    return btoa(String.fromCharCode(...new Uint8Array(bits)));
+  },
+
+  _compararSeguro(a, b) {
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return diff === 0;
+  },
+
+  /** Guarda un PIN nuevo como hash con sal aleatoria y elimina cualquier PIN en texto plano. */
+  async establecerPin(pinNuevo) {
+    const limpio = String(pinNuevo || '').trim();
+    if (limpio.length < 4) {
+      throw new Error('El PIN debe tener al menos 4 caracteres.');
+    }
+    const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+    const pinSalt = btoa(String.fromCharCode(...saltBytes));
+    const pinIterations = 150000;
+    const pinHashV2 = await this._derivarHashPin(limpio, pinSalt, pinIterations);
+    const { pinHash, ...resto } = this.authConfig; // descartar PIN heredado en texto plano
+    this.authConfig = { ...resto, pinSalt, pinHashV2, pinIterations };
+    localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(this.authConfig));
+  },
+
+  /**
+   * Verifica el PIN. Devuelve { ok, pinDebil }.
+   * Si el PIN estaba guardado en texto plano (versiones anteriores), lo migra a hash.
+   */
+  async verificarPinPropietario(pinIngresado) {
     const limpio = String(pinIngresado || '').trim();
-    return limpio.length > 0 && limpio === String(this.authConfig.pinHash).trim();
+    if (!limpio) return { ok: false };
+
+    if (this.authConfig.pinHashV2 && this.authConfig.pinSalt) {
+      const calculado = await this._derivarHashPin(
+        limpio,
+        this.authConfig.pinSalt,
+        this.authConfig.pinIterations || 150000
+      );
+      return { ok: this._compararSeguro(calculado, this.authConfig.pinHashV2), pinDebil: false };
+    }
+
+    // Migración desde PIN en texto plano (incluye el antiguo valor por defecto "1234")
+    const legado = this.authConfig.pinHash !== undefined ? String(this.authConfig.pinHash).trim() : '';
+    if (legado && this._compararSeguro(limpio, legado)) {
+      const pinDebil = legado === '1234' || legado.length < 4;
+      if (legado.length >= 4) {
+        await this.establecerPin(legado);
+      }
+      return { ok: true, pinDebil };
+    }
+    return { ok: false };
+  },
+
+  /**
+   * Tonos para distinguir a cada dueño. Deben coincidir con las clases .tono-N de css/styles.css
+   * (aquí se usan para el PDF y para nombrar el color en la configuración).
+   */
+  TONOS: [
+    { nombre: 'Verde potrero', texto: '#1e5631', fondo: '#e7f2ea' },
+    { nombre: 'Cuero', texto: '#9a411b', fondo: '#f9ece6' },
+    { nombre: 'Añil', texto: '#2f4a8a', fondo: '#ebeff9' },
+    { nombre: 'Ciruela', texto: '#6d2d6b', fondo: '#f5ecf5' },
+    { nombre: 'Ocre', texto: '#7a5a00', fondo: '#fbf3dc' },
+    { nombre: 'Aguamarina', texto: '#10625e', fondo: '#e3f3f1' },
+    { nombre: 'Pizarra', texto: '#3f4a54', fondo: '#eef0f2' },
+    { nombre: 'Vino', texto: '#8f1d2c', fondo: '#fbeaec' }
+  ],
+  TOTAL_TONOS: 8,
+
+  /** Normaliza un código de fierro: 1 a 3 letras o números en mayúscula. */
+  normalizarCodigoFierro(valor) {
+    return String(valor == null ? '' : valor)
+      .toUpperCase()
+      .replace(/[ÁÀÄÂ]/g, 'A')
+      .replace(/[ÉÈËÊ]/g, 'E')
+      .replace(/[ÍÌÏÎ]/g, 'I')
+      .replace(/[ÓÒÖÔ]/g, 'O')
+      .replace(/[ÚÙÜÛ]/g, 'U')
+      .replace(/[^A-Z0-9Ñ]/g, '')
+      .slice(0, 3);
+  },
+
+  /**
+   * Devuelve la lista limpia de fierros. Migra el formato anterior (propietarioF / propietarioH)
+   * y agrega cualquier fierro usado por animales que no esté en la lista, para no perder datos.
+   */
+  normalizarFierros(lista, cfgAnterior = {}, animales = []) {
+    const vistos = new Set();
+    const fierros = [];
+    const agregar = (codigoRaw, propietario, tono) => {
+      const codigo = this.normalizarCodigoFierro(codigoRaw);
+      if (!codigo || vistos.has(codigo)) return;
+      vistos.add(codigo);
+      const t = parseInt(tono, 10);
+      fierros.push({
+        codigo,
+        propietario:
+          String(propietario == null ? '' : propietario).trim().slice(0, 80) ||
+          `Propietario ${codigo}`,
+        tono:
+          Number.isInteger(t) && t >= 0 && t < this.TOTAL_TONOS
+            ? t
+            : fierros.length % this.TOTAL_TONOS
+      });
+    };
+
+    if (Array.isArray(lista)) {
+      lista.forEach((f) => {
+        if (f && typeof f === 'object') agregar(f.codigo, f.propietario, f.tono);
+      });
+    }
+
+    if (fierros.length === 0) {
+      // Formato anterior: solo Fierro F y Fierro H
+      agregar('F', cfgAnterior.propietarioF || 'Propietario Fierro F', 0);
+      agregar('H', cfgAnterior.propietarioH || 'Propietario Fierro H', 1);
+    }
+
+    (Array.isArray(animales) ? animales : []).forEach((a) => {
+      if (a && typeof a === 'object' && a.fierro) agregar(a.fierro, '', undefined);
+    });
+
+    return fierros;
+  },
+
+  getFierros() {
+    return Array.isArray(this.state.config.fierros) ? this.state.config.fierros : [];
+  },
+
+  getFierro(codigo) {
+    return this.getFierros().find((f) => f.codigo === codigo) || null;
+  },
+
+  /** Cuenta animales (de cualquier estatus) registrados con ese fierro. */
+  contarAnimalesDeFierro(codigo) {
+    return this.state.animales.filter((a) => a.fierro === codigo).length;
+  },
+
+  /**
+   * Reemplaza la lista de fierros validando códigos únicos y que no se elimine
+   * un fierro que todavía tiene animales registrados. Lanza Error con mensaje para el usuario.
+   */
+  guardarFierros(nuevaLista) {
+    const codigos = new Set();
+    const limpia = [];
+    nuevaLista.forEach((f, i) => {
+      const codigo = this.normalizarCodigoFierro(f.codigo);
+      if (!codigo) {
+        throw new Error(`El fierro #${i + 1} necesita un código (1 a 3 letras o números).`);
+      }
+      if (codigos.has(codigo)) throw new Error(`El código de fierro "${codigo}" está repetido.`);
+      codigos.add(codigo);
+      const propietario = String(f.propietario || '').trim().slice(0, 80);
+      if (!propietario) throw new Error(`Escribe el nombre del dueño del Fierro ${codigo}.`);
+      const t = parseInt(f.tono, 10);
+      limpia.push({
+        codigo,
+        propietario,
+        tono: Number.isInteger(t) && t >= 0 && t < this.TOTAL_TONOS ? t : i % this.TOTAL_TONOS
+      });
+    });
+
+    if (limpia.length === 0) throw new Error('Debe existir al menos un fierro.');
+
+    const enUso = [...new Set(this.state.animales.map((a) => a.fierro))].filter(
+      (c) => c && !codigos.has(c)
+    );
+    if (enUso.length > 0) {
+      throw new Error(
+        `No se puede quitar el Fierro ${enUso.join(', ')}: todavía tiene animales registrados.`
+      );
+    }
+
+    this.state.config.fierros = limpia;
+  },
+
+  /**
+   * Limpia y normaliza un estado proveniente de localStorage, la nube o un respaldo importado.
+   * Garantiza IDs seguros (solo letras, números, guion y guion bajo) y tipos correctos,
+   * para que datos manipulados no puedan inyectar código en la interfaz.
+   */
+  normalizarEstado(raw, configBase = {}) {
+    const safeId = (v) => String(v == null ? '' : v).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+    const str = (v) => (v == null ? '' : typeof v === 'string' ? v : String(v));
+    const esObjeto = (o) => o && typeof o === 'object' && !Array.isArray(o);
+
+    const fuente = esObjeto(raw) ? raw : {};
+    const cfg = esObjeto(fuente.config) ? fuente.config : {};
+
+    const config = { ...configBase };
+    Object.keys(cfg).forEach((k) => {
+      const v = cfg[k];
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        config[k] = v;
+      }
+    });
+    config.edadDesteteMeses = parseInt(config.edadDesteteMeses, 10) || 7;
+    config.fierros = this.normalizarFierros(cfg.fierros, cfg, fuente.animales);
+    delete config.propietarioF;
+    delete config.propietarioH;
+
+    const camposNumericos = ['pesoActual'];
+    const animales = (Array.isArray(fuente.animales) ? fuente.animales : [])
+      .filter(esObjeto)
+      .map((a) => {
+        const limpio = {};
+        Object.keys(a).forEach((k) => {
+          const v = a[k];
+          if (k === 'aretesAnteriores') {
+            limpio[k] = Array.isArray(v) ? v.map(str) : [];
+          } else if (camposNumericos.includes(k)) {
+            limpio[k] = v === '' || v == null || isNaN(parseFloat(v)) ? '' : parseFloat(v);
+          } else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+            limpio[k] = typeof v === 'boolean' ? v : str(v);
+          }
+        });
+        limpio.id = safeId(a.id) || 'ANM-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+        limpio.madreId = a.madreId ? safeId(a.madreId) : '';
+        if (!Array.isArray(limpio.aretesAnteriores)) limpio.aretesAnteriores = [];
+        if (!limpio.estatus) limpio.estatus = 'Activo';
+        return limpio;
+      });
+
+    const eventosSanitarios = (Array.isArray(fuente.eventosSanitarios) ? fuente.eventosSanitarios : [])
+      .filter(esObjeto)
+      .map((e) => {
+        const limpio = {};
+        Object.keys(e).forEach((k) => {
+          const v = e[k];
+          if (typeof v === 'string' || typeof v === 'number') limpio[k] = v;
+        });
+        limpio.id = safeId(e.id) || 'SAN-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
+        limpio.animalId = safeId(e.animalId);
+        return limpio;
+      });
+
+    return { config, animales, eventosSanitarios };
+  },
+
+  /** localStorage.setItem con manejo de cuota llena. Devuelve true si se guardó. */
+  _guardarSeguro(key, valor) {
+    try {
+      localStorage.setItem(key, valor);
+      return true;
+    } catch (e) {
+      console.error('No se pudo guardar en el dispositivo:', e);
+      const app = window.RanchoApp;
+      if (app && typeof app.mostrarToast === 'function') {
+        app.mostrarToast(
+          'Almacenamiento del dispositivo lleno: el último cambio NO se guardó. Descarga un respaldo y libera espacio.',
+          'error'
+        );
+      }
+      return false;
+    }
   },
 
   activarModoDemo() {
@@ -105,11 +381,7 @@ window.RanchoDB = {
     if (rawDemo) {
       try {
         const parsed = JSON.parse(rawDemo);
-        this.state = {
-          config: { ...this.state.config, ...(parsed.config || {}) },
-          animales: Array.isArray(parsed.animales) ? parsed.animales : [],
-          eventosSanitarios: Array.isArray(parsed.eventosSanitarios) ? parsed.eventosSanitarios : []
-        };
+        this.state = this.normalizarEstado(parsed, this.state.config);
       } catch (e) {
         this.seedDemoData();
       }
@@ -131,17 +403,10 @@ window.RanchoDB = {
     if (rawReal) {
       try {
         const parsed = JSON.parse(rawReal);
-        this.state = {
-          config: {
-            nombreRancho: 'Mi Rancho Ganadero',
-            propietarioF: 'Propietario Fierro F',
-            propietarioH: 'Propietario Fierro H',
-            edadDesteteMeses: 7,
-            ...(parsed.config || {})
-          },
-          animales: Array.isArray(parsed.animales) ? parsed.animales : [],
-          eventosSanitarios: Array.isArray(parsed.eventosSanitarios) ? parsed.eventosSanitarios : []
-        };
+        this.state = this.normalizarEstado(parsed, {
+          nombreRancho: 'Mi Rancho Ganadero',
+          edadDesteteMeses: 7
+        });
       } catch (e) {
         this.inicializarRanchoRealVacio();
       }
@@ -160,8 +425,10 @@ window.RanchoDB = {
     this.state = {
       config: {
         nombreRancho: 'Rancho Ganadero (Privado)',
-        propietarioF: 'Propietario Fierro F',
-        propietarioH: 'Propietario Fierro H',
+        fierros: [
+          { codigo: 'F', propietario: 'Propietario Fierro F', tono: 0 },
+          { codigo: 'H', propietario: 'Propietario Fierro H', tono: 1 }
+        ],
         edadDesteteMeses: 7,
         updatedAt: new Date().toISOString()
       },
@@ -225,7 +492,7 @@ window.RanchoDB = {
   saveLocal() {
     this.state.config.updatedAt = new Date().toISOString();
     const targetKey = this.sessionMode === 'REAL' ? STORAGE_KEY_REAL : STORAGE_KEY_DEMO;
-    localStorage.setItem(targetKey, JSON.stringify(this.state));
+    this._guardarSeguro(targetKey, JSON.stringify(this.state));
 
     // Solo sincronizar con la nube real si estamos en la sesión privada REAL del propietario
     if (this.sessionMode === 'REAL' && this.cloudConfig.enabled) {
@@ -337,8 +604,8 @@ window.RanchoDB = {
         const remoteTime = new Date(remoteState.config?.updatedAt || 0).getTime();
 
         if (remoteTime >= localTime || this.state.animales.length === 0) {
-          this.state = remoteState;
-          localStorage.setItem(STORAGE_KEY_REAL, JSON.stringify(this.state));
+          this.state = this.normalizarEstado(remoteState, this.state.config);
+          this._guardarSeguro(STORAGE_KEY_REAL, JSON.stringify(this.state));
           this.cloudConfig.lastSyncAt = new Date().toISOString();
           this.cloudConfig.pendingSync = false;
           localStorage.setItem(STORAGE_KEY_CLOUD, JSON.stringify(this.cloudConfig));
@@ -484,8 +751,11 @@ window.RanchoDB = {
   seedDemoData() {
     this.state.config = {
       nombreRancho: 'Rancho Demostración (Vista Portafolio)',
-      propietarioF: 'Productor A (Fierro F)',
-      propietarioH: 'Productor B (Fierro H)',
+      fierros: [
+        { codigo: 'F', propietario: 'Productor A', tono: 0 },
+        { codigo: 'H', propietario: 'Productor B', tono: 1 },
+        { codigo: 'R', propietario: 'Productora C', tono: 2 }
+      ],
       edadDesteteMeses: 7,
       updatedAt: new Date().toISOString()
     };
@@ -628,6 +898,27 @@ window.RanchoDB = {
         pesoVenta: '',
         precioVenta: '',
         notasBaja: 'Ejemplo de baja para portafolio.'
+      },
+      {
+        id: 'ANM-R-001',
+        fierro: 'R',
+        numero: '15',
+        arete: 'MX-260230',
+        colorArete: 'Amarillo SINIIGA',
+        estadoArete: 'Correcto',
+        aretesAnteriores: [],
+        sexo: 'Hembra',
+        categoria: 'Novillona',
+        razaColor: 'Simmental / Beefmaster',
+        fechaNacimiento: '2024-08-03',
+        origen: 'Comprado',
+        pesoActual: 352,
+        madreId: '',
+        madreFierro: '',
+        madreNumero: '',
+        madreArete: '',
+        estatus: 'Activo',
+        notas: 'Tercer dueño en el mismo terreno: el #15 también existe en F y H.'
       }
     ];
 

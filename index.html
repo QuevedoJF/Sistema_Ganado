@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Sistema de Control Ganadero — Fierros F y H</title>
   <meta name="theme-color" content="#1c241e" />
   <script>
@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=3" />
+  <link rel="stylesheet" href="./css/styles.css?v=5" />
   <!-- Librerías para exportar Tablas en Excel (.xlsx) y PDF -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -24,27 +24,31 @@
 </head>
 <body>
 
-  <!-- BARRA SUPERIOR PARA CELULAR (SOLO MÓVIL) -->
+  <!-- BARRA SUPERIOR PARA CELULAR Y TABLET -->
   <header class="mobile-topbar mobile-only">
-    <div class="mobile-topbar-brand">
+    <div class="mobile-topbar-row">
       <button type="button" class="btn-menu-drawer" onclick="RanchoApp.toggleSidebar(true)" aria-label="Abrir menú">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/>
         </svg>
       </button>
-      <div class="mobile-brand-emblem" aria-hidden="true">F·H</div>
-      <div class="mobile-brand-meta" onclick="if(window.RanchoDB.sessionMode === 'REAL') RanchoApp.abrirModalConfiguracion()" style="cursor: pointer;" title="Toca para configurar propietarios y nube">
+      <div id="mobileEmblem" class="brand-emblem brand-emblem-sm" aria-hidden="true"></div>
+      <div class="mobile-brand-meta">
         <span class="mobile-brand-title" id="mobileRanchoNombre">Rancho Ganadero</span>
-        <span class="mobile-brand-status" id="mobileSessionStatus">Vista Portafolio</span>
+        <span class="mobile-brand-status"><span id="mobileSyncDot" class="sync-dot demo"></span><span id="mobileSessionStatus">Vista Portafolio</span></span>
       </div>
+      <button type="button" class="btn-topbar-icon" onclick="RanchoApp.abrirModalConfiguracion()" aria-label="Dueños, fierros y nube">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+          <circle cx="7.5" cy="7" r="2.75" />
+          <path d="M2.5 16c.6-2.6 2.6-4 5-4s4.4 1.4 5 4" stroke-linecap="round" />
+          <circle cx="14" cy="8" r="2.1" />
+          <path d="M13.2 12.1c2.1-.2 3.8.9 4.3 3.4" stroke-linecap="round" />
+        </svg>
+      </button>
     </div>
 
-    <!-- Filtro rápido de fierro en la barra móvil -->
-    <div class="mobile-fierro-chips">
-      <button id="mChipAll" class="m-chip active-all" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">Todo</button>
-      <button id="mChipF" class="m-chip" onclick="RanchoApp.cambiarFiltroFierro('F')">Fierro F</button>
-      <button id="mChipH" class="m-chip" onclick="RanchoApp.cambiarFiltroFierro('H')">Fierro H</button>
-    </div>
+    <!-- Filtro rápido por fierro: tira deslizable, admite cualquier número de dueños -->
+    <div id="mobileFierroChips" class="mobile-fierro-chips" role="group" aria-label="Filtrar por fierro"></div>
   </header>
 
   <!-- TELÓN DE FONDO PARA EL MENÚ LATERAL EN MÓVIL -->
@@ -56,60 +60,26 @@
       <div class="sidebar-top-row mobile-only">
         <span class="sidebar-drawer-title">Menú de gestión</span>
         <div class="sidebar-top-row-actions">
-          <button type="button" class="btn-top-config" onclick="RanchoApp.abrirModalConfiguracion()" title="Configurar propietarios y nube" aria-label="Propietarios y nube">
-            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
-              <circle cx="10" cy="10" r="3" />
-              <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
+          <button type="button" class="btn-close-sidebar" onclick="RanchoApp.toggleSidebar(false)" aria-label="Cerrar menú">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" stroke-linecap="round" />
             </svg>
-            <span>Nube &amp; Dueños</span>
           </button>
-          <button type="button" class="btn-close-sidebar" onclick="RanchoApp.toggleSidebar(false)" aria-label="Cerrar">&times;</button>
         </div>
       </div>
 
       <div class="sidebar-brand">
-        <div class="brand-emblem" aria-hidden="true">
-          <span class="emblem-f">F</span>
-          <span class="emblem-divider"></span>
-          <span class="emblem-h">H</span>
-        </div>
+        <div id="brandEmblem" class="brand-emblem" aria-hidden="true"></div>
         <div class="brand-meta">
           <h1 id="ranchoNombreHeader">Rancho Ganadero F &amp; H</h1>
           <p id="ranchoPropietariosHeader">Control de Padrón y Trazabilidad</p>
         </div>
       </div>
 
-      <!-- SELECTOR DE FIERRO (PROPIETARIOS) -->
+      <!-- SELECTOR DE FIERRO (PROPIETARIOS): se genera desde la lista de dueños -->
       <div class="sidebar-group">
         <div class="sidebar-group-label">Filtrar por fierro</div>
-        <div class="fierro-selector" role="group" aria-label="Filtro por Fierro">
-          <button id="btnFilterAll" class="fierro-option active-all" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
-            <span class="fierro-option-mark mark-all">F·H</span>
-            <span class="fierro-option-info">
-              <span class="fierro-option-title">Todo el rancho</span>
-              <span class="fierro-option-sub">Ambos propietarios</span>
-            </span>
-            <span id="sideCountAll" class="fierro-option-count">0</span>
-          </button>
-
-          <button id="btnFilterF" class="fierro-option" onclick="RanchoApp.cambiarFiltroFierro('F')">
-            <span class="fierro-option-mark mark-f">F</span>
-            <span class="fierro-option-info">
-              <span class="fierro-option-title">Fierro F</span>
-              <span id="sideOwnerF" class="fierro-option-sub">Propietario F</span>
-            </span>
-            <span id="sideCountF" class="fierro-option-count">0</span>
-          </button>
-
-          <button id="btnFilterH" class="fierro-option" onclick="RanchoApp.cambiarFiltroFierro('H')">
-            <span class="fierro-option-mark mark-h">H</span>
-            <span class="fierro-option-info">
-              <span class="fierro-option-title">Fierro H</span>
-              <span id="sideOwnerH" class="fierro-option-sub">Propietario H</span>
-            </span>
-            <span id="sideCountH" class="fierro-option-count">0</span>
-          </button>
-        </div>
+        <div id="fierroSelector" class="fierro-selector" role="group" aria-label="Filtro por fierro"></div>
       </div>
 
       <!-- SECCIONES DEL SISTEMA -->
@@ -136,8 +106,8 @@
           </button>
 
           <button class="nav-tab" data-tab="sanidad" onclick="RanchoApp.cambiarTab('sanidad')">
-            <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
-              <path d="M10 4v12M4 10h12" stroke-linecap="round" />
+            <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <path d="M13.5 3.5l3 3M15 5l-8.5 8.5-3 .5.5-3L12.5 2.5M9.5 6.5l1.5 1.5M7.5 8.5L9 10M3.5 16.5l2-2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <span class="nav-tab-text">Sanidad y pesajes</span>
             <span id="badgeCountSanidad" class="tab-badge">0</span>
@@ -160,7 +130,7 @@
             <circle cx="10" cy="10" r="3" />
             <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
           </svg>
-          <span>Propietarios y nube</span>
+          <span>Dueños, fierros y nube</span>
         </button>
 
         <div id="sessionModeBanner" class="session-mode-box mode-demo">
@@ -236,8 +206,8 @@
       </button>
 
       <button class="m-bottom-tab" data-tab="sanidad" onclick="RanchoApp.cambiarTab('sanidad')">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M10 4v12M4 10h12" stroke-linecap="round" />
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M13.5 3.5l3 3M15 5l-8.5 8.5-3 .5.5-3L12.5 2.5M9.5 6.5l1.5 1.5M7.5 8.5L9 10M3.5 16.5l2-2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         <span>Sanidad</span>
       </button>
@@ -274,29 +244,16 @@
           <div class="fieldset-card">
             <div class="fieldset-header">Propiedad y clasificación</div>
             <div class="form-grid">
-              <div class="form-group">
-                <label class="form-label">Fierro del propietario *</label>
-                <div class="visual-selector-group">
-                  <div id="optFierroF" class="visual-radio-option selected-fierro-F" onclick="RanchoApp.seleccionarFierroModal('F')">
-                    <span class="radio-brand-mark">F</span>
-                    <span>Fierro F</span>
-                  </div>
-                  <div id="optFierroH" class="visual-radio-option" onclick="RanchoApp.seleccionarFierroModal('H')">
-                    <span class="radio-brand-mark">H</span>
-                    <span>Fierro H</span>
-                  </div>
-                </div>
+              <div class="form-group full-width">
+                <span class="form-label" id="labelFierroModal">Fierro del propietario *</span>
+                <div id="fierroOptions" class="visual-selector-group fierro-options" role="radiogroup" aria-labelledby="labelFierroModal"></div>
               </div>
 
-              <div class="form-group">
-                <label class="form-label">Sexo *</label>
-                <div class="visual-selector-group">
-                  <div id="optSexoHembra" class="visual-radio-option selected-sexo-Hembra" onclick="RanchoApp.seleccionarSexoModal('Hembra')">
-                    <span>♀ Hembra</span>
-                  </div>
-                  <div id="optSexoMacho" class="visual-radio-option" onclick="RanchoApp.seleccionarSexoModal('Macho')">
-                    <span>♂ Macho</span>
-                  </div>
+              <div class="form-group full-width">
+                <span class="form-label" id="labelSexoModal">Sexo *</span>
+                <div class="visual-selector-group" role="radiogroup" aria-labelledby="labelSexoModal">
+                  <button type="button" role="radio" id="optSexoHembra" class="visual-radio-option" onclick="RanchoApp.seleccionarSexoModal('Hembra')">Hembra</button>
+                  <button type="button" role="radio" id="optSexoMacho" class="visual-radio-option" onclick="RanchoApp.seleccionarSexoModal('Macho')">Macho</button>
                 </div>
               </div>
             </div>
@@ -407,10 +364,7 @@
 
               <div class="form-group">
                 <label class="form-label" for="fieldMadreFierro">Fierro de la madre</label>
-                <select id="fieldMadreFierro" class="form-select">
-                  <option value="F">Fierro F</option>
-                  <option value="H">Fierro H</option>
-                </select>
+                <select id="fieldMadreFierro" class="form-select"></select>
               </div>
 
               <div class="form-group">
@@ -609,28 +563,18 @@
   <div id="modalConfig" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Configuración del rancho y sincronización en la nube</h2>
+        <h2>Dueños, fierros y sincronización</h2>
         <button class="modal-close" onclick="RanchoApp.cerrarModal('modalConfig')" aria-label="Cerrar">&times;</button>
       </div>
 
       <form onsubmit="RanchoApp.guardarConfiguracion(event)">
         <div class="modal-body">
           <div class="fieldset-card">
-            <div class="fieldset-header">🏷️ Datos del rancho y fierros (F y H)</div>
+            <div class="fieldset-header">Datos del rancho</div>
             <div class="form-grid">
               <div class="form-group full-width">
                 <label class="form-label" for="cfgNombreRancho">Nombre del rancho</label>
                 <input type="text" id="cfgNombreRancho" class="form-input" placeholder="Ej. Rancho El Progreso" />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="cfgPropietarioF">Propietario del Fierro F</label>
-                <input type="text" id="cfgPropietarioF" class="form-input" placeholder="Nombre del dueño F" />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="cfgPropietarioH">Propietario del Fierro H</label>
-                <input type="text" id="cfgPropietarioH" class="form-input" placeholder="Nombre del dueño H" />
               </div>
 
               <div class="form-group">
@@ -640,13 +584,28 @@
 
               <div class="form-group">
                 <label class="form-label" for="cfgPinAcceso">Clave / PIN de acceso privado</label>
-                <input type="password" id="cfgPinAcceso" class="form-input input-mono" placeholder="Ej. 1234" />
+                <input type="password" id="cfgPinAcceso" class="form-input input-mono" placeholder="Dejar vacío para no cambiarlo" autocomplete="new-password" minlength="4" />
+                <p class="form-help-text">Mínimo 4 caracteres. Se guarda cifrado (hash), nunca en texto plano.</p>
               </div>
             </div>
           </div>
 
           <div class="fieldset-card">
-            <div class="fieldset-header">☁️ Base de datos en la nube (Firebase Firestore)</div>
+            <div class="fieldset-header fieldset-header-row">
+              <span>Dueños y fierros en el terreno</span>
+              <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.agregarFilaFierro()">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke-linecap="round" /></svg>
+                Agregar dueño
+              </button>
+            </div>
+            <p class="form-help-text form-help-top">
+              Cada dueño marca su ganado con su propio fierro. El número de cada animal solo se repite entre fierros distintos, nunca dentro del mismo.
+            </p>
+            <div id="cfgFierrosList" class="owners-list"></div>
+          </div>
+
+          <div class="fieldset-card">
+            <div class="fieldset-header">Base de datos en la nube (Firebase Firestore)</div>
             <div class="form-grid">
               <div class="form-group full-width">
                 <label class="cloud-toggle-label">
@@ -676,7 +635,7 @@
           </div>
 
           <div class="fieldset-card">
-            <div class="fieldset-header">💾 Copia de seguridad y mantenimiento</div>
+            <div class="fieldset-header">Copia de seguridad y mantenimiento</div>
             <div class="backup-actions-row">
               <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.descargarRespaldoJSON()">
                 Descargar respaldo (.json)
@@ -715,19 +674,31 @@
       <form onsubmit="RanchoApp.confirmarAccesoPrivado(event)">
         <div class="modal-body">
           <div class="fieldset-card">
-            <p class="form-help-text" style="margin-top:0;margin-bottom:0.85rem;">
+            <p id="accesoTextoAyuda" class="form-help-text" style="margin-top:0;margin-bottom:0.85rem;">
               Actualmente estás en la <strong>Vista Portafolio (Datos de demostración)</strong> para que los visitantes de tu portafolio no vean la información real de tu rancho. Ingresa tu clave de propietario para cargar tu padrón privado.
             </p>
 
             <div class="form-grid">
               <div class="form-group full-width">
-                <label class="form-label" for="inputPinAcceso">Clave / PIN del rancho *</label>
+                <label class="form-label" for="inputPinAcceso" id="labelPinAcceso">Clave / PIN del rancho *</label>
                 <input
                   type="password"
                   id="inputPinAcceso"
                   class="form-input input-mono"
-                  placeholder="Ingresa tu clave (por defecto: 1234)"
+                  placeholder="Ingresa tu clave"
+                  autocomplete="current-password"
                   required
+                />
+              </div>
+
+              <div class="form-group full-width" id="grupoPinConfirmar" style="display:none;">
+                <label class="form-label" for="inputPinConfirmar">Confirma tu nuevo PIN *</label>
+                <input
+                  type="password"
+                  id="inputPinConfirmar"
+                  class="form-input input-mono"
+                  placeholder="Repite el PIN"
+                  autocomplete="new-password"
                 />
               </div>
 
@@ -743,7 +714,7 @@
 
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')">Seguir en modo portafolio</button>
-          <button type="submit" class="btn btn-primary">Desbloquear rancho real</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitAcceso">Desbloquear rancho real</button>
         </div>
       </form>
     </div>
@@ -753,9 +724,9 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- SCRIPTS DEL SISTEMA -->
-  <script src="./js/validations.js?v=3"></script>
-  <script src="./js/db.js?v=3"></script>
-  <script src="./js/exports.js?v=3"></script>
-  <script src="./js/app.js?v=3"></script>
+  <script src="./js/validations.js?v=5"></script>
+  <script src="./js/db.js?v=5"></script>
+  <script src="./js/exports.js?v=5"></script>
+  <script src="./js/app.js?v=5"></script>
 </body>
 </html>

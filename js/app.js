@@ -1,9 +1,30 @@
 /**
- * Controlador Principal de la Aplicación Ganadera (Fierros F y H)
+ * Controlador Principal de la Aplicación Ganadera (varios dueños / fierros en un terreno)
  */
 
+/**
+ * Escapa texto para insertarlo de forma segura en plantillas HTML (innerHTML).
+ * Todo dato capturado por el usuario, importado o descargado de la nube debe pasar por aquí.
+ */
+/** Sello visual de un fierro con el color de su dueño. */
+function sello(codigo, claseExtra = '') {
+  const f = window.RanchoDB.getFierro(codigo);
+  const tono = f ? f.tono : 6;
+  const titulo = f ? `Fierro ${f.codigo} — ${f.propietario}` : `Fierro ${codigo}`;
+  return `<span class="stamp-fierro tono-${tono} ${claseExtra}" title="${esc(titulo)}">${esc(codigo)}</span>`;
+}
+
+function esc(valor) {
+  return String(valor == null ? '' : valor)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 window.RanchoApp = {
-  filtroFierro: 'TODOS', // 'TODOS' | 'F' | 'H'
+  filtroFierro: 'TODOS', // 'TODOS' o el código de un fierro (ej. 'F', 'H', 'R')
   tabActiva: 'inventario', // 'inventario' | 'bajas' | 'sanidad' | 'genealogia'
   busquedaTexto: '',
   filtroSexo: 'TODOS',
@@ -12,7 +33,7 @@ window.RanchoApp = {
 
   formAnimalActual: {
     id: null,
-    fierro: 'F',
+    fierro: '',
     sexo: 'Hembra'
   },
 
@@ -23,7 +44,25 @@ window.RanchoApp = {
     });
 
     this.registrarServiceWorker();
+    this.registrarAtajosModales();
     this.renderTodo();
+  },
+
+  registrarAtajosModales() {
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const abierto = [...document.querySelectorAll('.modal-backdrop.open')].pop();
+      if (abierto) {
+        this.cerrarModal(abierto.id);
+      } else {
+        this.toggleSidebar(false);
+      }
+    });
+    document.querySelectorAll('.modal-backdrop').forEach((bd) => {
+      bd.addEventListener('mousedown', (e) => {
+        if (e.target === bd) this.cerrarModal(bd.id);
+      });
+    });
   },
 
   registrarServiceWorker() {
@@ -139,10 +178,15 @@ window.RanchoApp = {
     const titleEl = document.getElementById('ranchoNombreHeader');
     if (titleEl) titleEl.textContent = config.nombreRancho;
 
+    const fierros = window.RanchoDB.getFierros();
     const subEl = document.getElementById('ranchoPropietariosHeader');
     if (subEl) {
-      subEl.textContent = `${config.propietarioF} · ${config.propietarioH}`;
+      subEl.textContent =
+        fierros.length === 1
+          ? `1 dueño · Fierro ${fierros[0].codigo}`
+          : `${fierros.length} dueños · Fierros ${fierros.map((f) => f.codigo).join(', ')}`;
     }
+    this.renderEmblemas(fierros);
 
     const syncDot = document.getElementById('syncStatusDot');
     const syncText = document.getElementById('syncStatusText');
@@ -162,7 +206,14 @@ window.RanchoApp = {
     const mobTitle = document.getElementById('mobileRanchoNombre');
     const mobStatus = document.getElementById('mobileSessionStatus');
     if (mobTitle) mobTitle.textContent = config.nombreRancho;
-    if (mobStatus) mobStatus.textContent = esReal ? 'Rancho Privado' : 'Vista Portafolio';
+    if (mobStatus) mobStatus.textContent = cloudCfg.statusText;
+    const mobDot = document.getElementById('mobileSyncDot');
+    if (mobDot) {
+      mobDot.className = 'sync-dot';
+      if (!esReal) mobDot.classList.add('demo');
+      else if (!navigator.onLine) mobDot.classList.add('offline');
+      else if (cloudCfg.enabled && !cloudCfg.pendingSync) mobDot.classList.add('cloud');
+    }
 
     if (syncDot && syncText) {
       syncText.textContent = cloudCfg.statusText;
@@ -183,12 +234,12 @@ window.RanchoApp = {
       sanidad: 'Bitácora de Sanidad, Pesajes y Destetes',
       bajas: 'Registro Histórico de Ventas y Bajas'
     };
-    const subFierro =
-      this.filtroFierro === 'TODOS'
-        ? 'Mostrando ambos fierros (F y H) en los terrenos del rancho'
-        : this.filtroFierro === 'F'
-        ? `Filtrado por Fierro F — ${config.propietarioF}`
-        : `Filtrado por Fierro H — ${config.propietarioH}`;
+    const fActivo = window.RanchoDB.getFierro(this.filtroFierro);
+    const subFierro = fActivo
+      ? `Fierro ${fActivo.codigo} — ${fActivo.propietario}`
+      : fierros.length > 1
+      ? `Todos los fierros del terreno (${fierros.length} dueños)`
+      : 'Todo el ganado del terreno';
 
     const vistaTit = document.getElementById('vistaTituloPrincipal');
     const vistaSub = document.getElementById('vistaSubtitulo');
@@ -196,137 +247,164 @@ window.RanchoApp = {
     if (vistaSub) vistaSub.textContent = subFierro;
   },
 
-  renderBotonesFierro() {
-    const { config, animales } = window.RanchoDB.state;
-    const activosF = animales.filter((a) => a.fierro === 'F' && a.estatus === 'Activo').length;
-    const activosH = animales.filter((a) => a.fierro === 'H' && a.estatus === 'Activo').length;
-
-    const btnAll = document.getElementById('btnFilterAll');
-    const btnF = document.getElementById('btnFilterF');
-    const btnH = document.getElementById('btnFilterH');
-
-    if (btnAll) {
-      btnAll.className = `fierro-option ${this.filtroFierro === 'TODOS' ? 'active-all' : ''}`;
-    }
-    if (btnF) {
-      btnF.className = `fierro-option ${this.filtroFierro === 'F' ? 'active-f' : ''}`;
-    }
-    if (btnH) {
-      btnH.className = `fierro-option ${this.filtroFierro === 'H' ? 'active-h' : ''}`;
-    }
-
-    const mAll = document.getElementById('mChipAll');
-    const mF = document.getElementById('mChipF');
-    const mH = document.getElementById('mChipH');
-    if (mAll) mAll.className = `m-chip ${this.filtroFierro === 'TODOS' ? 'active-all' : ''}`;
-    if (mF) mF.className = `m-chip ${this.filtroFierro === 'F' ? 'active-f' : ''}`;
-    if (mH) mH.className = `m-chip ${this.filtroFierro === 'H' ? 'active-h' : ''}`;
-
-    const setTxt = (id, val) => {
+  renderEmblemas(fierros) {
+    const visibles = fierros.slice(0, 3);
+    const extra = fierros.length - visibles.length;
+    const html =
+      visibles
+        .map((f) => `<span class="emblem-code tono-${f.tono}">${esc(f.codigo)}</span>`)
+        .join('<span class="emblem-divider"></span>') +
+      (extra > 0 ? `<span class="emblem-more">+${extra}</span>` : '');
+    ['brandEmblem', 'mobileEmblem'].forEach((id) => {
       const el = document.getElementById(id);
-      if (el) el.textContent = val;
-    };
-    setTxt('sideOwnerF', config.propietarioF);
-    setTxt('sideOwnerH', config.propietarioH);
-    setTxt('sideCountAll', activosF + activosH);
-    setTxt('sideCountF', activosF);
-    setTxt('sideCountH', activosH);
+      if (el) {
+        el.innerHTML = html;
+        el.dataset.count = String(Math.min(fierros.length, 4));
+      }
+    });
+  },
+
+  renderBotonesFierro() {
+    const { animales } = window.RanchoDB.state;
+    const fierros = window.RanchoDB.getFierros();
+
+    // Si el filtro apunta a un fierro que ya no existe, volver a "todos"
+    if (this.filtroFierro !== 'TODOS' && !fierros.some((f) => f.codigo === this.filtroFierro)) {
+      this.filtroFierro = 'TODOS';
+    }
+
+    const activosDe = (codigo) =>
+      animales.filter((a) => a.fierro === codigo && a.estatus === 'Activo').length;
+    const totalActivos = animales.filter((a) => a.estatus === 'Activo').length;
+    const todosActivo = this.filtroFierro === 'TODOS';
+
+    const selector = document.getElementById('fierroSelector');
+    if (selector) {
+      selector.innerHTML =
+        `<button type="button" class="fierro-option ${todosActivo ? 'is-active' : ''}" aria-pressed="${todosActivo}" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
+          <span class="fierro-option-mark mark-all" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="6" rx="1.2"/><rect x="3" y="11" width="6" height="6" rx="1.2"/><rect x="11" y="11" width="6" height="6" rx="1.2"/></svg>
+          </span>
+          <span class="fierro-option-info">
+            <span class="fierro-option-title">Todo el terreno</span>
+            <span class="fierro-option-sub">${fierros.length} ${fierros.length === 1 ? 'dueño' : 'dueños'}</span>
+          </span>
+          <span class="fierro-option-count">${totalActivos}</span>
+        </button>` +
+        fierros
+          .map((f) => {
+            const activo = this.filtroFierro === f.codigo;
+            return `<button type="button" class="fierro-option tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" onclick="RanchoApp.cambiarFiltroFierro('${esc(f.codigo)}')">
+              <span class="fierro-option-mark" aria-hidden="true">${esc(f.codigo)}</span>
+              <span class="fierro-option-info">
+                <span class="fierro-option-title">Fierro ${esc(f.codigo)}</span>
+                <span class="fierro-option-sub">${esc(f.propietario)}</span>
+              </span>
+              <span class="fierro-option-count">${activosDe(f.codigo)}</span>
+            </button>`;
+          })
+          .join('');
+    }
+
+    const chips = document.getElementById('mobileFierroChips');
+    if (chips) {
+      chips.innerHTML =
+        `<button type="button" class="m-chip ${todosActivo ? 'is-active' : ''}" aria-pressed="${todosActivo}" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
+          Todos <span class="m-chip-count">${totalActivos}</span>
+        </button>` +
+        fierros
+          .map((f) => {
+            const activo = this.filtroFierro === f.codigo;
+            return `<button type="button" class="m-chip tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" onclick="RanchoApp.cambiarFiltroFierro('${esc(f.codigo)}')">
+              <span class="m-chip-code">${esc(f.codigo)}</span>
+              <span class="m-chip-owner">${esc(f.propietario)}</span>
+              <span class="m-chip-count">${activosDe(f.codigo)}</span>
+            </button>`;
+          })
+          .join('');
+      const activoEl = chips.querySelector('.m-chip.is-active');
+      if (activoEl && typeof activoEl.scrollIntoView === 'function' && !todosActivo) {
+        activoEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
   },
 
   renderKPIs() {
     const animales = window.RanchoDB.state.animales;
-    const config = window.RanchoDB.state.config;
+    const fierros = window.RanchoDB.getFierros();
+    const enFiltro = (a) => this.filtroFierro === 'TODOS' || a.fierro === this.filtroFierro;
 
-    const activosF = animales.filter((a) => a.fierro === 'F' && a.estatus === 'Activo');
-    const hembrasF = activosF.filter((a) => a.sexo === 'Hembra').length;
-    const machosF = activosF.filter((a) => a.sexo === 'Macho').length;
+    const activos = animales.filter((a) => a.estatus === 'Activo');
+    const totalHembras = activos.filter((a) => a.sexo === 'Hembra').length;
+    const totalMachos = activos.filter((a) => a.sexo === 'Macho').length;
 
-    const activosH = animales.filter((a) => a.fierro === 'H' && a.estatus === 'Activo');
-    const hembrasH = activosH.filter((a) => a.sexo === 'Hembra').length;
-    const machosH = activosH.filter((a) => a.sexo === 'Macho').length;
-
-    const totalActivos = activosF.length + activosH.length;
-    const totalHembras = hembrasF + hembrasH;
-    const totalMachos = machosF + machosH;
-
-    const vendidos = animales.filter(
-      (a) =>
-        a.estatus === 'Vendido' &&
-        (this.filtroFierro === 'TODOS' || a.fierro === this.filtroFierro)
-    ).length;
-    const muertos = animales.filter(
-      (a) =>
-        a.estatus === 'Muerto' &&
-        (this.filtroFierro === 'TODOS' || a.fierro === this.filtroFierro)
-    ).length;
-
+    const vendidos = animales.filter((a) => a.estatus === 'Vendido' && enFiltro(a)).length;
+    const muertos = animales.filter((a) => a.estatus === 'Muerto' && enFiltro(a)).length;
     const sinArete = animales.filter(
       (a) =>
         a.estatus === 'Activo' &&
-        (this.filtroFierro === 'TODOS' || a.fierro === this.filtroFierro) &&
+        enFiltro(a) &&
         (!a.arete || a.arete === 'S/N' || a.estadoArete !== 'Correcto')
     ).length;
 
     const kpiContainer = document.getElementById('kpiGrid');
     if (!kpiContainer) return;
 
+    const celdasFierro = fierros
+      .map((f) => {
+        const delFierro = activos.filter((a) => a.fierro === f.codigo);
+        const h = delFierro.filter((a) => a.sexo === 'Hembra').length;
+        const m = delFierro.filter((a) => a.sexo === 'Macho').length;
+        const activo = this.filtroFierro === f.codigo;
+        return `
+          <button type="button" class="summary-cell summary-cell-interactive summary-fierro tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" onclick="RanchoApp.cambiarFiltroFierro('${esc(f.codigo)}')">
+            <span class="summary-label">
+              <span class="summary-owner">${esc(f.propietario)}</span>
+              ${sello(f.codigo, 'stamp-sm')}
+            </span>
+            <span class="summary-number">${delFierro.length} <small>activos</small></span>
+            <span class="summary-breakdown">
+              <span>Hembras <strong>${h}</strong></span>
+              <span>Machos <strong>${m}</strong></span>
+            </span>
+          </button>`;
+      })
+      .join('');
+
+    const todos = this.filtroFierro === 'TODOS';
     kpiContainer.innerHTML = `
-      <div class="summary-cell summary-cell-interactive" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
-        <div class="summary-label">
-          <span>Padrón activo total</span>
-        </div>
-        <div class="summary-number">${totalActivos} <small>cabezas</small></div>
-        <div class="summary-breakdown">
-          <span>Hembras: <strong>${totalHembras}</strong></span>
-          <span>Machos: <strong>${totalMachos}</strong></span>
-        </div>
-      </div>
+      <button type="button" class="summary-cell summary-cell-interactive ${todos ? 'is-active' : ''}" aria-pressed="${todos}" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
+        <span class="summary-label"><span>Padrón activo total</span></span>
+        <span class="summary-number">${activos.length} <small>cabezas</small></span>
+        <span class="summary-breakdown">
+          <span>Hembras <strong>${totalHembras}</strong></span>
+          <span>Machos <strong>${totalMachos}</strong></span>
+        </span>
+      </button>
 
-      <div class="summary-cell summary-cell-interactive" onclick="RanchoApp.cambiarFiltroFierro('F')">
-        <div class="summary-label">
-          <span>Fierro F (${config.propietarioF})</span>
-          <span class="stamp-fierro stamp-fierro-F" style="width:20px;height:20px;font-size:0.8rem;">F</span>
-        </div>
-        <div class="summary-number">${activosF.length} <small>activos</small></div>
-        <div class="summary-breakdown">
-          <span>♀ ${hembrasF}</span>
-          <span>♂ ${machosF}</span>
-        </div>
-      </div>
+      ${celdasFierro}
 
-      <div class="summary-cell summary-cell-interactive" onclick="RanchoApp.cambiarFiltroFierro('H')">
-        <div class="summary-label">
-          <span>Fierro H (${config.propietarioH})</span>
-          <span class="stamp-fierro stamp-fierro-H" style="width:20px;height:20px;font-size:0.8rem;">H</span>
-        </div>
-        <div class="summary-number">${activosH.length} <small>activos</small></div>
-        <div class="summary-breakdown">
-          <span>♀ ${hembrasH}</span>
-          <span>♂ ${machosH}</span>
-        </div>
-      </div>
+      <button type="button" class="summary-cell summary-cell-interactive" onclick="RanchoApp.cambiarTab('bajas')">
+        <span class="summary-label"><span>Salidas registradas</span></span>
+        <span class="summary-number">${vendidos + muertos} <small>bajas</small></span>
+        <span class="summary-breakdown">
+          <span>Ventas <strong>${vendidos}</strong></span>
+          <span>Muertes <strong>${muertos}</strong></span>
+        </span>
+      </button>
 
-      <div class="summary-cell summary-cell-interactive" onclick="RanchoApp.cambiarTab('bajas')">
-        <div class="summary-label">
-          <span>Salidas registradas</span>
-        </div>
-        <div class="summary-number">${vendidos + muertos} <small>bajas</small></div>
-        <div class="summary-breakdown">
-          <span>Ventas: <strong>${vendidos}</strong></span>
-          <span>Muertes: <strong>${muertos}</strong></span>
-        </div>
-      </div>
-
-      <div class="summary-cell">
-        <div class="summary-label">
-          <span>Aretes por revisar</span>
-        </div>
-        <div class="summary-number">${sinArete} <small>pendientes</small></div>
-        <div class="summary-breakdown">
-          <span>Sin arete o caídos</span>
-        </div>
-      </div>
+      <button type="button" class="summary-cell summary-cell-interactive ${sinArete > 0 ? 'summary-alert' : ''}" onclick="RanchoApp.filtrarSinArete()">
+        <span class="summary-label"><span>Aretes por revisar</span></span>
+        <span class="summary-number">${sinArete} <small>pendientes</small></span>
+        <span class="summary-breakdown"><span>Sin arete o caídos</span></span>
+      </button>
     `;
+  },
+
+  filtrarSinArete() {
+    this.tabActiva = 'inventario';
+    this.filtroAreteEstado = 'SIN_ARETE';
+    this.renderTodo();
   },
 
   renderAlertasCorral() {
@@ -400,7 +478,7 @@ window.RanchoApp = {
         ${alertas
           .map(
             (al) =>
-              `<span class="alert-chip" onclick="RanchoApp.abrirFichaAnimal('${al.id}')">${al.texto}</span>`
+              `<span class="alert-chip" onclick="RanchoApp.abrirFichaAnimal('${esc(al.id)}')">${esc(al.texto)}</span>`
           )
           .join('')}
       </div>
@@ -458,7 +536,7 @@ window.RanchoApp = {
     const filasHTML =
       lista.length === 0
         ? `<tr>
-            <td colspan="8" style="text-align:center;padding:2.5rem;color:#78847c;">
+            <td colspan="8" style="text-align:center;padding:2.5rem;color:#66726a;">
               No hay registros que coincidan con los filtros seleccionados.
             </td>
           </tr>`
@@ -470,11 +548,11 @@ window.RanchoApp = {
               );
               const tieneMadre = a.madreNumero || a.madreArete;
               const madreBadge = tieneMadre
-                ? `<span class="madre-pill" onclick="RanchoApp.verMadreDeAnimal('${a.id}')" title="Ver expediente de la madre">
-                    <span>Fierro ${a.madreFierro || a.fierro} · #${a.madreNumero || '?'}</span>
-                    <small style="color:#78847c;">(${a.madreArete || 'S/A'})</small>
+                ? `<span class="madre-pill" onclick="RanchoApp.verMadreDeAnimal('${esc(a.id)}')" title="Ver expediente de la madre">
+                    <span>Fierro ${a.madreFierro || a.fierro} · #${esc(a.madreNumero || '?')}</span>
+                    <small style="color:#66726a;">(${esc(a.madreArete || 'S/A')})</small>
                    </span>`
-                : `<span style="color:#78847c;font-size:0.78rem;">Sin registro</span>`;
+                : `<span style="color:#66726a;font-size:0.78rem;">Sin registro</span>`;
 
               const areteMal = !a.arete || a.arete === 'S/N' || a.estadoArete !== 'Correcto';
 
@@ -493,28 +571,28 @@ window.RanchoApp = {
                 <tr>
                   <td>
                     <div class="identity-cell">
-                      <span class="stamp-fierro stamp-fierro-${a.fierro}" title="Fierro ${a.fierro}">${a.fierro}</span>
+                      ${sello(a.fierro)}
                       <div>
-                        <span class="numero-vaca">#${a.numero}</span>
-                        <span class="fierro-Inline-label">Fierro ${a.fierro}</span>
+                        <span class="numero-vaca">#${esc(a.numero)}</span>
+                        <span class="fierro-Inline-label">Fierro ${esc(a.fierro)}</span>
                       </div>
                     </div>
                   </td>
                   <td>
-                    <span class="arete-code ${areteMal ? 'sin-arete' : ''}">${a.arete || 'S/N'}</span>
-                    <div class="arete-sub">${a.estadoArete || 'Correcto'}</div>
+                    <span class="arete-code ${areteMal ? 'sin-arete' : ''}">${esc(a.arete || 'S/N')}</span>
+                    <div class="arete-sub">${esc(a.estadoArete || 'Correcto')}</div>
                   </td>
                   <td>
-                    <span class="badge-sexo badge-sexo-${a.sexo}">
+                    <span class="badge-sexo badge-sexo-${esc(a.sexo)}">
                       ${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}
                     </span>
                     <div class="categoria-sub">
-                      ${a.categoria || ''}${a.razaColor ? ` · ${a.razaColor}` : ''}
+                      ${esc(a.categoria || '')}${a.razaColor ? ` · ${esc(a.razaColor)}` : ''}
                     </div>
                   </td>
                   <td>
                     <div style="font-weight:600;">${edad.texto}</div>
-                    <div class="arete-sub">Nac: ${a.fechaNacimiento || 'No reg.'}</div>
+                    <div class="arete-sub">Nac: ${esc(a.fechaNacimiento || 'No reg.')}</div>
                   </td>
                   <td>
                     ${madreBadge}
@@ -528,24 +606,24 @@ window.RanchoApp = {
                   </td>
                   <td>
                     <span style="font-family:var(--font-mono);font-weight:600;">
-                      ${a.pesoActual ? a.pesoActual + ' kg' : '—'}
+                      ${a.pesoActual ? esc(a.pesoActual) + ' kg' : '—'}
                     </span>
                   </td>
                   <td>
-                    <span class="badge-status badge-status-${a.estatus}">
-                      ${a.estatus}
+                    <span class="badge-status badge-status-${esc(a.estatus)}">
+                      ${esc(a.estatus)}
                     </span>
                     ${
                       a.estatus !== 'Activo'
                         ? `<div style="font-size:0.76rem;color:#525e56;margin-top:4px;line-height:1.35;">
-                            <div><strong>Fecha:</strong> ${a.fechaBaja || '-'}</div>
+                            <div><strong>Fecha:</strong> ${esc(a.fechaBaja || '-')}</div>
                             ${
                               a.estatus === 'Vendido'
-                                ? `<div><strong>Comprador:</strong> ${a.compradorDestino || 'Sin registrar'}</div>
-                                   ${a.guiaReemo ? `<div><strong>Guía REEMO:</strong> ${a.guiaReemo}</div>` : ''}
-                                   ${a.pesoVenta ? `<div><strong>Peso venta:</strong> ${a.pesoVenta} kg</div>` : ''}
-                                   ${a.precioVenta ? `<div><strong>Monto:</strong> $${a.precioVenta}</div>` : ''}`
-                                : `<div><strong>Causa:</strong> ${a.motivoBaja || '-'}</div>`
+                                ? `<div><strong>Comprador:</strong> ${esc(a.compradorDestino || 'Sin registrar')}</div>
+                                   ${a.guiaReemo ? `<div><strong>Guía REEMO:</strong> ${esc(a.guiaReemo)}</div>` : ''}
+                                   ${a.pesoVenta ? `<div><strong>Peso venta:</strong> ${esc(a.pesoVenta)} kg</div>` : ''}
+                                   ${a.precioVenta ? `<div><strong>Monto:</strong> $${esc(a.precioVenta)}</div>` : ''}`
+                                : `<div><strong>Causa:</strong> ${esc(a.motivoBaja || '-')}</div>`
                             }
                            </div>`
                         : ''
@@ -553,30 +631,30 @@ window.RanchoApp = {
                   </td>
                   <td>
                     <div class="row-actions">
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${a.id}')">
+                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(a.id)}')">
                         Expediente
                       </button>
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${a.id}')">
+                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${esc(a.id)}')">
                         Editar
                       </button>
                       ${
                         a.sexo === 'Hembra' &&
                         a.estatus === 'Activo' &&
                         !(a.categoria || '').includes('Becerr')
-                          ? `<button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${a.id}')">
+                          ? `<button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(a.id)}')">
                               + Cría
                              </button>`
                           : ''
                       }
                       ${
                         a.estatus === 'Activo'
-                          ? `<button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.abrirModalBaja('${a.id}')">
+                          ? `<button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">
                               Vender / Baja
                              </button>`
-                          : `<button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${a.id}')">
+                          : `<button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">
                               Datos venta
                              </button>
-                             <button class="btn btn-outline btn-sm" onclick="RanchoApp.confirmarReactivar('${a.id}')">
+                             <button class="btn btn-outline btn-sm" onclick="RanchoApp.confirmarReactivar('${esc(a.id)}')">
                               Reactivar
                              </button>`
                       }
@@ -613,42 +691,42 @@ window.RanchoApp = {
                 <div class="animal-card-mobile ${a.estatus !== 'Activo' ? 'card-baja' : ''}">
                   <div class="acm-header">
                     <div class="acm-identity">
-                      <span class="stamp-fierro stamp-fierro-${a.fierro}">${a.fierro}</span>
-                      <span class="acm-num">#${a.numero}</span>
-                      <span class="badge-sexo badge-sexo-${a.sexo}">${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}</span>
+                      ${sello(a.fierro)}
+                      <span class="acm-num">#${esc(a.numero)}</span>
+                      <span class="badge-sexo badge-sexo-${esc(a.sexo)}">${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}</span>
                     </div>
-                    <span class="arete-code ${areteMal ? 'sin-arete' : ''}">${a.arete || 'S/N'}</span>
+                    <span class="arete-code ${areteMal ? 'sin-arete' : ''}">${esc(a.arete || 'S/N')}</span>
                   </div>
 
                   <div class="acm-body">
                     <div class="acm-row">
-                      <span class="acm-cat">${a.categoria || ''}${a.razaColor ? ' · ' + a.razaColor : ''}</span>
-                      <span class="acm-weight">${a.pesoActual ? a.pesoActual + ' kg' : '—'}</span>
+                      <span class="acm-cat">${esc(a.categoria || '')}${a.razaColor ? ' · ' + esc(a.razaColor) : ''}</span>
+                      <span class="acm-weight">${a.pesoActual ? esc(a.pesoActual) + ' kg' : '—'}</span>
                     </div>
                     <div class="acm-row acm-sub">
                       <span><strong>Edad:</strong> ${edad.texto}</span>
-                      ${tieneMadre ? `<span class="acm-madre-tag" onclick="RanchoApp.verMadreDeAnimal('${a.id}')">Madre: F${a.madreFierro || a.fierro} #${a.madreNumero || '?'}</span>` : '<span style="color:#78847c;">Sin madre</span>'}
+                      ${tieneMadre ? `<button type="button" class="acm-madre-tag" onclick="RanchoApp.verMadreDeAnimal('${esc(a.id)}')">Madre: Fierro ${esc(a.madreFierro || a.fierro)} #${esc(a.madreNumero || '?')}</button>` : '<span class="acm-muted">Sin madre registrada</span>'}
                     </div>
-                    ${numCrias > 0 ? `<div class="crias-count-note">🍼 ${numCrias} ${numCrias === 1 ? 'cría registrada' : 'crías registradas'}</div>` : ''}
+                    ${numCrias > 0 ? `<div class="crias-count-note">${numCrias} ${numCrias === 1 ? 'cría registrada' : 'crías registradas'}</div>` : ''}
                     ${a.estatus !== 'Activo' ? `
                       <div class="acm-baja-info">
-                        <strong>${a.estatus}:</strong> ${a.fechaBaja || ''}
-                        ${a.estatus === 'Vendido' ? ` · Comprador: <strong>${a.compradorDestino || 'No reg.'}</strong> ${a.precioVenta ? '($' + a.precioVenta + ')' : ''}` : ` · Causa: ${a.motivoBaja || ''}`}
+                        <strong>${esc(a.estatus)}:</strong> ${esc(a.fechaBaja || '')}
+                        ${a.estatus === 'Vendido' ? ` · Comprador: <strong>${esc(a.compradorDestino || 'No reg.')}</strong> ${a.precioVenta ? '($' + esc(a.precioVenta) + ')' : ''}` : ` · Causa: ${esc(a.motivoBaja || '')}`}
                       </div>
                     ` : ''}
                   </div>
 
                   <div class="acm-actions">
-                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${a.id}')">Expediente</button>
-                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${a.id}')">Editar</button>
+                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(a.id)}')">Expediente</button>
+                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${esc(a.id)}')">Editar</button>
                     ${a.sexo === 'Hembra' && a.estatus === 'Activo' && !(a.categoria || '').includes('Becerr') ? `
-                      <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${a.id}')">+ Cría</button>
+                      <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(a.id)}')">+ Cría</button>
                     ` : ''}
                     ${a.estatus === 'Activo' ? `
-                      <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.abrirModalBaja('${a.id}')">Vender / Baja</button>
+                      <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">Vender / Baja</button>
                     ` : `
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${a.id}')">Datos venta</button>
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.confirmarReactivar('${a.id}')">Reactivar</button>
+                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">Datos venta</button>
+                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.confirmarReactivar('${esc(a.id)}')">Reactivar</button>
                     `}
                   </div>
                 </div>
@@ -668,7 +746,7 @@ window.RanchoApp = {
               type="text"
               id="inputBusqueda"
               placeholder="Buscar por número (#15), arete SINIIGA, madre, raza o comprador..."
-              value="${this.busquedaTexto}"
+              value="${esc(this.busquedaTexto)}"
               oninput="RanchoApp.actualizarBusqueda(this.value)"
             />
           </div>
@@ -723,33 +801,33 @@ window.RanchoApp = {
 
     const filas =
       eventosFiltrados.length === 0
-        ? `<tr><td colspan="8" style="text-align:center;padding:2.5rem;color:#78847c;">No hay manejos sanitarios ni pesajes registrados.</td></tr>`
+        ? `<tr><td colspan="8" style="text-align:center;padding:2.5rem;color:#66726a;">No hay manejos sanitarios ni pesajes registrados.</td></tr>`
         : eventosFiltrados
             .map((ev) => {
               const anm = animales.find((a) => a.id === ev.animalId);
               return `
                 <tr>
-                  <td style="font-family:var(--font-mono);">${ev.fecha}</td>
+                  <td style="font-family:var(--font-mono);">${esc(ev.fecha)}</td>
                   <td>
                     ${
                       anm
                         ? `<div class="identity-cell">
-                             <span class="stamp-fierro stamp-fierro-${anm.fierro}">${anm.fierro}</span>
+                             ${sello(anm.fierro)}
                              <div>
-                               <span class="numero-vaca">#${anm.numero}</span>
-                               <span class="fierro-Inline-label">Arete: ${anm.arete || 'S/N'}</span>
+                               <span class="numero-vaca">#${esc(anm.numero)}</span>
+                               <span class="fierro-Inline-label">Arete: ${esc(anm.arete || 'S/N')}</span>
                              </div>
                            </div>`
                         : 'Registro eliminado'
                     }
                   </td>
-                  <td><span class="badge-status badge-status-Activo">${ev.tipo}</span></td>
-                  <td><strong>${ev.producto}</strong></td>
-                  <td>${ev.dosis || '—'}</td>
-                  <td style="font-family:var(--font-mono);">${ev.pesoKg ? ev.pesoKg + ' kg' : '—'}</td>
-                  <td style="font-family:var(--font-mono);">${ev.proximaFecha || '—'}</td>
+                  <td><span class="badge-status badge-status-Activo">${esc(ev.tipo)}</span></td>
+                  <td><strong>${esc(ev.producto)}</strong></td>
+                  <td>${esc(ev.dosis || '—')}</td>
+                  <td style="font-family:var(--font-mono);">${ev.pesoKg ? esc(ev.pesoKg) + ' kg' : '—'}</td>
+                  <td style="font-family:var(--font-mono);">${esc(ev.proximaFecha || '—')}</td>
                   <td>
-                    <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.borrarEventoSanitario('${ev.id}')">Eliminar</button>
+                    <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.borrarEventoSanitario('${esc(ev.id)}')">Eliminar</button>
                   </td>
                 </tr>
               `;
@@ -768,25 +846,25 @@ window.RanchoApp = {
                     <div class="acm-identity">
                       ${
                         anm
-                          ? `<span class="stamp-fierro stamp-fierro-${anm.fierro}">${anm.fierro}</span>
-                             <span class="acm-num">#${anm.numero}</span>`
+                          ? `${sello(anm.fierro)}
+                             <span class="acm-num">#${esc(anm.numero)}</span>`
                           : '<span>Eliminado</span>'
                       }
-                      <span class="badge-status badge-status-Activo">${ev.tipo}</span>
+                      <span class="badge-status badge-status-Activo">${esc(ev.tipo)}</span>
                     </div>
-                    <span style="font-family:var(--font-mono);font-size:0.78rem;color:#525e56;">${ev.fecha}</span>
+                    <span style="font-family:var(--font-mono);font-size:0.78rem;color:#525e56;">${esc(ev.fecha)}</span>
                   </div>
                   <div class="acm-body">
-                    <div style="font-weight:700;font-size:0.9rem;">${ev.producto}</div>
+                    <div style="font-weight:700;font-size:0.9rem;">${esc(ev.producto)}</div>
                     <div class="acm-row acm-sub" style="margin-top:4px;">
-                      <span>Dosis: ${ev.dosis || '—'}</span>
-                      <span>Peso: ${ev.pesoKg ? ev.pesoKg + ' kg' : '—'}</span>
-                      <span>Refuerzo: ${ev.proximaFecha || '—'}</span>
+                      <span>Dosis: ${esc(ev.dosis || '—')}</span>
+                      <span>Peso: ${ev.pesoKg ? esc(ev.pesoKg) + ' kg' : '—'}</span>
+                      <span>Refuerzo: ${esc(ev.proximaFecha || '—')}</span>
                     </div>
-                    ${ev.notas ? `<div style="font-size:0.76rem;color:#78847c;margin-top:4px;">${ev.notas}</div>` : ''}
+                    ${ev.notas ? `<div style="font-size:0.76rem;color:#66726a;margin-top:4px;">${esc(ev.notas)}</div>` : ''}
                   </div>
                   <div class="acm-actions" style="justify-content:flex-end;">
-                    <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.borrarEventoSanitario('${ev.id}')">Eliminar</button>
+                    <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.borrarEventoSanitario('${esc(ev.id)}')">Eliminar</button>
                   </div>
                 </div>
               `;
@@ -845,7 +923,7 @@ window.RanchoApp = {
 
     const filas =
       hembras.length === 0
-        ? `<tr><td colspan="5" style="text-align:center;padding:2.5rem;color:#78847c;">No hay vacas reproductoras registradas en este filtro.</td></tr>`
+        ? `<tr><td colspan="5" style="text-align:center;padding:2.5rem;color:#66726a;">No hay vacas reproductoras registradas en este filtro.</td></tr>`
         : hembras
             .map((vaca) => {
               const crias = animales.filter(
@@ -858,16 +936,16 @@ window.RanchoApp = {
 
               const listaCriasHTML =
                 crias.length === 0
-                  ? `<span style="color:#78847c;font-size:0.8rem;">Sin crías registradas</span>`
+                  ? `<span style="color:#66726a;font-size:0.8rem;">Sin crías registradas</span>`
                   : crias
                       .map(
                         (c) => `
                         <div style="margin:2px 6px 2px 0;padding:4px 8px;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;display:inline-flex;align-items:center;gap:6px;">
-                          <strong style="font-family:var(--font-mono);">#${c.numero}</strong>
-                          <span class="badge-sexo badge-sexo-${c.sexo}" style="font-size:0.68rem;padding:1px 5px;">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
-                          <small style="font-family:var(--font-mono);">Arete: ${c.arete || 'S/N'}</small>
-                          <small style="color:#525e56;">(${c.fechaNacimiento || 'S/F'})</small>
-                          <span class="badge-status badge-status-${c.estatus}" style="font-size:0.68rem;padding:1px 5px;">${c.estatus}</span>
+                          <strong style="font-family:var(--font-mono);">#${esc(c.numero)}</strong>
+                          <span class="badge-sexo badge-sexo-${esc(c.sexo)}" style="font-size:0.68rem;padding:1px 5px;">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
+                          <small style="font-family:var(--font-mono);">Arete: ${esc(c.arete || 'S/N')}</small>
+                          <small style="color:#525e56;">(${esc(c.fechaNacimiento || 'S/F')})</small>
+                          <span class="badge-status badge-status-${esc(c.estatus)}" style="font-size:0.68rem;padding:1px 5px;">${esc(c.estatus)}</span>
                         </div>
                       `
                       )
@@ -877,21 +955,21 @@ window.RanchoApp = {
                 <tr>
                   <td>
                     <div class="identity-cell">
-                      <span class="stamp-fierro stamp-fierro-${vaca.fierro}">${vaca.fierro}</span>
+                      ${sello(vaca.fierro)}
                       <div>
-                        <span class="numero-vaca">#${vaca.numero}</span>
-                        <span class="fierro-Inline-label">Fierro ${vaca.fierro}</span>
+                        <span class="numero-vaca">#${esc(vaca.numero)}</span>
+                        <span class="fierro-Inline-label">Fierro ${esc(vaca.fierro)}</span>
                       </div>
                     </div>
                   </td>
-                  <td><span class="arete-code">${vaca.arete || 'S/N'}</span></td>
+                  <td><span class="arete-code">${esc(vaca.arete || 'S/N')}</span></td>
                   <td>
-                    <strong>${vaca.categoria}</strong>
-                    <div class="arete-sub">Estatus: ${vaca.estatus}</div>
+                    <strong>${esc(vaca.categoria)}</strong>
+                    <div class="arete-sub">Estatus: ${esc(vaca.estatus)}</div>
                   </td>
                   <td>${listaCriasHTML}</td>
                   <td>
-                    <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${vaca.id}')">
+                    <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(vaca.id)}')">
                       + Registrar parto / cría
                     </button>
                   </td>
@@ -915,16 +993,16 @@ window.RanchoApp = {
 
               const criasHTML =
                 crias.length === 0
-                  ? `<span style="color:#78847c;font-size:0.78rem;">Sin crías registradas aún</span>`
+                  ? `<span style="color:#66726a;font-size:0.78rem;">Sin crías registradas aún</span>`
                   : `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">` +
                     crias
                       .map(
                         (c) => `
                         <div style="padding:3px 7px;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;display:inline-flex;align-items:center;gap:5px;font-size:0.75rem;">
-                          <strong style="font-family:var(--font-mono);">#${c.numero}</strong>
-                          <span class="badge-sexo badge-sexo-${c.sexo}" style="font-size:0.65rem;padding:0 3px;">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
-                          <span style="font-family:var(--font-mono);font-size:0.7rem;color:#525e56;">${c.arete || 'S/N'}</span>
-                          <span class="badge-status badge-status-${c.estatus}" style="font-size:0.65rem;padding:0 3px;">${c.estatus}</span>
+                          <strong style="font-family:var(--font-mono);">#${esc(c.numero)}</strong>
+                          <span class="badge-sexo badge-sexo-${esc(c.sexo)}" style="font-size:0.65rem;padding:0 3px;">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
+                          <span style="font-family:var(--font-mono);font-size:0.7rem;color:#525e56;">${esc(c.arete || 'S/N')}</span>
+                          <span class="badge-status badge-status-${esc(c.estatus)}" style="font-size:0.65rem;padding:0 3px;">${esc(c.estatus)}</span>
                         </div>
                       `
                       )
@@ -935,20 +1013,20 @@ window.RanchoApp = {
                 <div class="animal-card-mobile">
                   <div class="acm-header">
                     <div class="acm-identity">
-                      <span class="stamp-fierro stamp-fierro-${vaca.fierro}">${vaca.fierro}</span>
-                      <span class="acm-num">#${vaca.numero}</span>
+                      ${sello(vaca.fierro)}
+                      <span class="acm-num">#${esc(vaca.numero)}</span>
                       <span class="badge-sexo badge-sexo-Hembra">♀ Vaca Madre</span>
                     </div>
-                    <span class="badge-status badge-status-${vaca.estatus}">${vaca.estatus}</span>
+                    <span class="badge-status badge-status-${esc(vaca.estatus)}">${esc(vaca.estatus)}</span>
                   </div>
 
                   <div class="acm-body">
                     <div class="acm-row">
-                      <span>Arete: <strong class="arete-code" style="font-size:0.78rem;">${vaca.arete || 'S/N'}</strong></span>
-                      <span>Raza: <strong>${vaca.raza || 'Común'}</strong></span>
+                      <span>Arete: <strong class="arete-code" style="font-size:0.78rem;">${esc(vaca.arete || 'S/N')}</strong></span>
+                      <span>Raza: <strong>${esc(vaca.raza || 'Común')}</strong></span>
                     </div>
                     <div class="acm-row acm-sub">
-                      <span>Etapa: ${vaca.categoria || 'Vaca'}</span>
+                      <span>Etapa: ${esc(vaca.categoria || 'Vaca')}</span>
                       <span>Total crías: <strong>${crias.length}</strong></span>
                     </div>
                     <div style="margin-top:6px;">
@@ -958,8 +1036,8 @@ window.RanchoApp = {
                   </div>
 
                   <div class="acm-actions">
-                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${vaca.id}')">Expediente</button>
-                    <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${vaca.id}')">+ Registrar parto / cría</button>
+                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(vaca.id)}')">Expediente</button>
+                    <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(vaca.id)}')">+ Registrar parto / cría</button>
                   </div>
                 </div>
               `;
@@ -1030,7 +1108,7 @@ window.RanchoApp = {
       ? prefillMadre.fierro
       : this.filtroFierro !== 'TODOS'
       ? this.filtroFierro
-      : 'F';
+      : (window.RanchoDB.getFierros()[0] || {}).codigo || '';
 
     const sexoDefault = existente ? existente.sexo : 'Hembra';
 
@@ -1123,11 +1201,17 @@ window.RanchoApp = {
 
   actualizarBotonesVisualesModal() {
     const { fierro, sexo } = this.formAnimalActual;
-    const btnF = document.getElementById('optFierroF');
-    const btnH = document.getElementById('optFierroH');
-    if (btnF && btnH) {
-      btnF.className = `visual-radio-option ${fierro === 'F' ? 'selected-fierro-F' : ''}`;
-      btnH.className = `visual-radio-option ${fierro === 'H' ? 'selected-fierro-H' : ''}`;
+    const cont = document.getElementById('fierroOptions');
+    if (cont) {
+      cont.innerHTML = window.RanchoDB.getFierros()
+        .map((f) => {
+          const sel = f.codigo === fierro;
+          return `<button type="button" role="radio" aria-checked="${sel}" class="fierro-pick tono-${f.tono} ${sel ? 'is-selected' : ''}" onclick="RanchoApp.seleccionarFierroModal('${esc(f.codigo)}')">
+            ${sello(f.codigo)}
+            <span class="fierro-pick-owner">${esc(f.propietario)}</span>
+          </button>`;
+        })
+        .join('');
     }
 
     const btnHembra = document.getElementById('optSexoHembra');
@@ -1135,6 +1219,8 @@ window.RanchoApp = {
     if (btnHembra && btnMacho) {
       btnHembra.className = `visual-radio-option ${sexo === 'Hembra' ? 'selected-sexo-Hembra' : ''}`;
       btnMacho.className = `visual-radio-option ${sexo === 'Macho' ? 'selected-sexo-Macho' : ''}`;
+      btnHembra.setAttribute('aria-checked', String(sexo === 'Hembra'));
+      btnMacho.setAttribute('aria-checked', String(sexo === 'Macho'));
     }
   },
 
@@ -1146,12 +1232,12 @@ window.RanchoApp = {
     select.innerHTML = opciones
       .map(
         (cat) =>
-          `<option value="${cat}" ${cat === categoriaSeleccionada ? 'selected' : ''}>${cat}</option>`
+          `<option value="${esc(cat)}" ${cat === categoriaSeleccionada ? 'selected' : ''}>${esc(cat)}</option>`
       )
       .join('');
   },
 
-  poblarSelectorMadreModal(madreId = '', madreFierro = 'F', madreNumero = '', madreArete = '') {
+  poblarSelectorMadreModal(madreId = '', madreFierro = '', madreNumero = '', madreArete = '') {
     const selectMadre = document.getElementById('fieldMadreSelect');
     if (!selectMadre) return;
 
@@ -1165,13 +1251,17 @@ window.RanchoApp = {
     let html = `<option value="">— Seleccionar de vacas registradas (o escribir abajo) —</option>`;
     hembras.forEach((h) => {
       const sel = h.id === madreId ? 'selected' : '';
-      html += `<option value="${h.id}" ${sel}>[Fierro ${h.fierro}] Vaca #${h.numero} — Arete: ${
+      html += `<option value="${esc(h.id)}" ${sel}>[Fierro ${esc(h.fierro)}] Vaca #${esc(h.numero)} — Arete: ${esc(
         h.arete || 'S/N'
-      } (${h.estatus})</option>`;
+      )} (${esc(h.estatus)})</option>`;
     });
 
     selectMadre.innerHTML = html;
-    document.getElementById('fieldMadreFierro').value = madreFierro || this.formAnimalActual.fierro;
+    const selFierroMadre = document.getElementById('fieldMadreFierro');
+    selFierroMadre.innerHTML = window.RanchoDB.getFierros()
+      .map((f) => `<option value="${esc(f.codigo)}">Fierro ${esc(f.codigo)} — ${esc(f.propietario)}</option>`)
+      .join('');
+    selFierroMadre.value = madreFierro || this.formAnimalActual.fierro;
     document.getElementById('fieldMadreNumero').value = madreNumero || '';
     document.getElementById('fieldMadreArete').value = madreArete || '';
   },
@@ -1308,9 +1398,9 @@ window.RanchoApp = {
 
     document.getElementById('bajaAnimalId').value = animal.id;
     document.getElementById('bajaAnimalInfo').innerHTML = `
-      <span class="stamp-fierro stamp-fierro-${animal.fierro}">${animal.fierro}</span>
-      <strong>Fierro ${animal.fierro} · Número #${animal.numero}</strong>
-      <span style="color:#525e56;">— Arete: ${animal.arete || 'S/N'} (${animal.sexo} · ${animal.categoria})</span>
+      ${sello(animal.fierro)}
+      <strong>Fierro ${esc(animal.fierro)} · Número #${esc(animal.numero)}</strong>
+      <span style="color:#525e56;">— Arete: ${esc(animal.arete || 'S/N')} (${esc(animal.sexo)} · ${esc(animal.categoria)})</span>
     `;
     document.getElementById('bajaTipo').value = tipoInicial;
     document.getElementById('bajaFecha').value =
@@ -1416,41 +1506,41 @@ window.RanchoApp = {
     contenedor.innerHTML = `
       <div class="selected-animal-banner" style="justify-content:space-between;">
         <div class="identity-cell">
-          <span class="stamp-fierro stamp-fierro-${a.fierro}">${a.fierro}</span>
+          ${sello(a.fierro)}
           <div>
-            <span class="numero-vaca" style="font-size:1.15rem;">Fierro ${a.fierro} · #${a.numero}</span>
-            <span class="badge-sexo badge-sexo-${a.sexo}" style="margin-left:0.4rem;">${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}</span>
-            <span class="badge-status badge-status-${a.estatus}" style="margin-left:0.35rem;">${a.estatus}</span>
+            <span class="numero-vaca" style="font-size:1.15rem;">Fierro ${esc(a.fierro)} · #${esc(a.numero)}</span>
+            <span class="badge-sexo badge-sexo-${esc(a.sexo)}" style="margin-left:0.4rem;">${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}</span>
+            <span class="badge-status badge-status-${esc(a.estatus)}" style="margin-left:0.35rem;">${esc(a.estatus)}</span>
           </div>
         </div>
         <div style="display:flex;gap:0.4rem;">
-          <button class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalFicha');RanchoApp.abrirModalAnimal('${a.id}')">Editar datos</button>
-          <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.eliminarRegistroDefinitivo('${a.id}')">Eliminar</button>
+          <button class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalFicha');RanchoApp.abrirModalAnimal('${esc(a.id)}')">Editar datos</button>
+          <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.eliminarRegistroDefinitivo('${esc(a.id)}')">Eliminar</button>
         </div>
       </div>
 
       <div class="detail-grid">
         <div class="detail-box">
           <div class="detail-box-label">Arete oficial (SINIIGA)</div>
-          <div class="detail-box-value" style="font-family:var(--font-mono);">${a.arete || 'S/N'}</div>
-          <div class="arete-sub">${a.colorArete || ''} · ${a.estadoArete || 'Correcto'}</div>
+          <div class="detail-box-value" style="font-family:var(--font-mono);">${esc(a.arete || 'S/N')}</div>
+          <div class="arete-sub">${esc(a.colorArete || '')} · ${esc(a.estadoArete || 'Correcto')}</div>
           ${
             a.aretesAnteriores && a.aretesAnteriores.length > 0
-              ? `<div style="font-size:0.74rem;color:var(--warning);margin-top:3px;">Aretes previos: ${a.aretesAnteriores.join(', ')}</div>`
+              ? `<div style="font-size:0.74rem;color:var(--warning);margin-top:3px;">Aretes previos: ${esc(a.aretesAnteriores.join(', '))}</div>`
               : ''
           }
         </div>
 
         <div class="detail-box">
           <div class="detail-box-label">Categoría y características</div>
-          <div class="detail-box-value">${a.categoria || '—'}</div>
-          <div class="arete-sub">Raza / Señas: ${a.razaColor || 'No especificado'} · Peso: ${a.pesoActual ? a.pesoActual + ' kg' : '—'}</div>
+          <div class="detail-box-value">${esc(a.categoria || '—')}</div>
+          <div class="arete-sub">Raza / Señas: ${esc(a.razaColor || 'No especificado')} · Peso: ${a.pesoActual ? esc(a.pesoActual) + ' kg' : '—'}</div>
         </div>
 
         <div class="detail-box">
           <div class="detail-box-label">Nacimiento y edad</div>
           <div class="detail-box-value">${edad.texto}</div>
-          <div class="arete-sub">Fecha: ${a.fechaNacimiento || 'Sin fecha'} (${a.origen || 'Rancho'})</div>
+          <div class="arete-sub">Fecha: ${esc(a.fechaNacimiento || 'Sin fecha')} (${esc(a.origen || 'Rancho')})</div>
         </div>
 
         <div class="detail-box">
@@ -1458,7 +1548,7 @@ window.RanchoApp = {
           <div class="detail-box-value">
             ${
               a.madreNumero || a.madreArete
-                ? `Fierro ${a.madreFierro || a.fierro} · #${a.madreNumero || '?'} (${a.madreArete || 'S/N'})`
+                ? `Fierro ${a.madreFierro || a.fierro} · #${esc(a.madreNumero || '?')} (${esc(a.madreArete || 'S/N')})`
                 : 'Sin registro materno'
             }
           </div>
@@ -1470,18 +1560,18 @@ window.RanchoApp = {
           ? `<div class="fieldset-card sale-fieldset" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
               <div style="font-size:0.83rem;line-height:1.45;">
                 <strong>${a.estatus === 'Vendido' ? 'Datos de venta' : 'Registro de baja por muerte'}</strong><br>
-                <span>Fecha: <strong>${a.fechaBaja || '-'}</strong></span> ·
-                <span>Concepto: <strong>${a.motivoBaja || '-'}</strong></span>
+                <span>Fecha: <strong>${esc(a.fechaBaja || '-')}</strong></span> ·
+                <span>Concepto: <strong>${esc(a.motivoBaja || '-')}</strong></span>
                 ${
                   a.estatus === 'Vendido'
-                    ? `<br><span>Comprador: <strong>${a.compradorDestino || 'Sin registrar'}</strong></span>
-                       ${a.guiaReemo ? ` · <span>Guía REEMO: <strong>${a.guiaReemo}</strong></span>` : ''}
-                       ${a.pesoVenta ? ` · <span>Peso venta: <strong>${a.pesoVenta} kg</strong></span>` : ''}
-                       ${a.precioVenta ? ` · <span>Monto: <strong>$${a.precioVenta}</strong></span>` : ''}`
+                    ? `<br><span>Comprador: <strong>${esc(a.compradorDestino || 'Sin registrar')}</strong></span>
+                       ${a.guiaReemo ? ` · <span>Guía REEMO: <strong>${esc(a.guiaReemo)}</strong></span>` : ''}
+                       ${a.pesoVenta ? ` · <span>Peso venta: <strong>${esc(a.pesoVenta)} kg</strong></span>` : ''}
+                       ${a.precioVenta ? ` · <span>Monto: <strong>$${esc(a.precioVenta)}</strong></span>` : ''}`
                     : ''
                 }
               </div>
-              <button class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalFicha');RanchoApp.abrirModalBaja('${a.id}')">
+              <button class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalFicha');RanchoApp.abrirModalBaja('${esc(a.id)}')">
                 Editar datos de salida
               </button>
              </div>`
@@ -1494,13 +1584,13 @@ window.RanchoApp = {
               <div class="fieldset-header">Crías registradas de esta vaca (${crias.length})</div>
               ${
                 crias.length === 0
-                  ? `<p style="font-size:0.82rem;color:#78847c;">No tiene crías registradas.</p>`
+                  ? `<p style="font-size:0.82rem;color:#66726a;">No tiene crías registradas.</p>`
                   : `<ul style="list-style:none;display:grid;gap:0.35rem;">
                       ${crias
                         .map(
                           (c) =>
                             `<li style="padding:0.45rem 0.65rem;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;font-size:0.82rem;">
-                              <strong>Fierro ${c.fierro} #${c.numero}</strong> (${c.sexo}) — Arete: <span style="font-family:var(--font-mono);">${c.arete || 'S/N'}</span> — Nac: ${c.fechaNacimiento || '?'} — Estatus: <strong>${c.estatus}</strong>
+                              <strong>Fierro ${esc(c.fierro)} #${esc(c.numero)}</strong> (${esc(c.sexo)}) — Arete: <span style="font-family:var(--font-mono);">${esc(c.arete || 'S/N')}</span> — Nac: ${esc(c.fechaNacimiento || '?')} — Estatus: <strong>${esc(c.estatus)}</strong>
                              </li>`
                         )
                         .join('')}
@@ -1514,13 +1604,13 @@ window.RanchoApp = {
         <div class="fieldset-header">Historial sanitario y pesajes (${sanidad.length})</div>
         ${
           sanidad.length === 0
-            ? `<p style="font-size:0.82rem;color:#78847c;">Sin registros sanitarios individuales.</p>`
+            ? `<p style="font-size:0.82rem;color:#66726a;">Sin registros sanitarios individuales.</p>`
             : `<ul style="list-style:none;display:grid;gap:0.35rem;">
                 ${sanidad
                   .map(
                     (s) =>
                       `<li style="padding:0.45rem 0.65rem;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;font-size:0.82rem;">
-                        <strong style="font-family:var(--font-mono);">${s.fecha}</strong> — <strong>${s.tipo}:</strong> ${s.producto} ${s.dosis ? `(${s.dosis})` : ''} ${s.pesoKg ? `· Peso: ${s.pesoKg} kg` : ''}
+                        <strong style="font-family:var(--font-mono);">${esc(s.fecha)}</strong> — <strong>${esc(s.tipo)}:</strong> ${esc(s.producto)} ${s.dosis ? `(${esc(s.dosis)})` : ''} ${s.pesoKg ? `· Peso: ${esc(s.pesoKg)} kg` : ''}
                        </li>`
                   )
                   .join('')}
@@ -1581,15 +1671,21 @@ window.RanchoApp = {
     const activos = window.RanchoDB.state.animales.filter((a) => a.estatus === 'Activo');
 
     let html = `
-      <option value="LOTE_F">Lote completo: Todo el Fierro F (Activos)</option>
-      <option value="LOTE_H">Lote completo: Todo el Fierro H (Activos)</option>
+      <optgroup label="Lote completo por fierro">
+      ${window.RanchoDB.getFierros()
+        .map(
+          (f) =>
+            `<option value="LOTE:${esc(f.codigo)}">Todo el Fierro ${esc(f.codigo)} — ${esc(f.propietario)} (activos)</option>`
+        )
+        .join('')}
+      </optgroup>
       <option value="LOTE_BECERROS">Lote: Todos los becerros y becerras lactantes</option>
       <optgroup label="Seleccionar animal individual">
     `;
     activos.forEach((a) => {
-      html += `<option value="${a.id}">[Fierro ${a.fierro}] #${a.numero} — Arete: ${
+      html += `<option value="${esc(a.id)}">[Fierro ${esc(a.fierro)}] #${esc(a.numero)} — Arete: ${esc(
         a.arete || 'S/N'
-      } (${a.categoria})</option>`;
+      )} (${esc(a.categoria)})</option>`;
     });
     html += `</optgroup>`;
 
@@ -1619,10 +1715,9 @@ window.RanchoApp = {
     const activos = window.RanchoDB.state.animales.filter((a) => a.estatus === 'Activo');
     let destinatarios = [];
 
-    if (alcance === 'LOTE_F') {
-      destinatarios = activos.filter((a) => a.fierro === 'F');
-    } else if (alcance === 'LOTE_H') {
-      destinatarios = activos.filter((a) => a.fierro === 'H');
+    if (alcance.startsWith('LOTE:')) {
+      const codigo = alcance.slice(5);
+      destinatarios = activos.filter((a) => a.fierro === codigo);
     } else if (alcance === 'LOTE_BECERROS') {
       destinatarios = activos.filter((a) => a.categoria && a.categoria.includes('Lactante'));
     } else {
@@ -1670,8 +1765,21 @@ window.RanchoApp = {
       window.RanchoDB.cerrarSesionPrivada();
       this.mostrarToast('Sesión privada cerrada. Ahora se muestran solo los datos de demostración.');
     } else {
+      const creando = !window.RanchoDB.tienePinConfigurado();
       document.getElementById('inputPinAcceso').value = '';
+      document.getElementById('inputPinConfirmar').value = '';
       document.getElementById('inputRecordarSesion').checked = false;
+      document.getElementById('grupoPinConfirmar').style.display = creando ? '' : 'none';
+      document.getElementById('inputPinConfirmar').required = creando;
+      document.getElementById('labelPinAcceso').textContent = creando
+        ? 'Crea tu PIN de propietario (mínimo 4 caracteres) *'
+        : 'Clave / PIN del rancho *';
+      document.getElementById('inputPinAcceso').placeholder = creando
+        ? 'Nuevo PIN'
+        : 'Ingresa tu clave';
+      document.getElementById('btnSubmitAcceso').textContent = creando
+        ? 'Crear PIN y entrar'
+        : 'Desbloquear rancho real';
       document.getElementById('modalAccesoPrivado').classList.add('open');
       setTimeout(() => {
         document.getElementById('inputPinAcceso').focus();
@@ -1679,20 +1787,49 @@ window.RanchoApp = {
     }
   },
 
-  confirmarAccesoPrivado(event) {
+  async confirmarAccesoPrivado(event) {
     event.preventDefault();
-    const pin = document.getElementById('inputPinAcceso').value;
+    const pin = document.getElementById('inputPinAcceso').value.trim();
     const recordar = document.getElementById('inputRecordarSesion').checked;
+    const db = window.RanchoDB;
+    let pinDebil = false;
 
-    if (!window.RanchoDB.verificarPinPropietario(pin)) {
-      this.mostrarToast('Clave / PIN incorrecto. Se mantiene la vista de portafolio.', 'error');
+    try {
+      if (!db.tienePinConfigurado()) {
+        const confirmacion = document.getElementById('inputPinConfirmar').value.trim();
+        if (pin.length < 4) {
+          this.mostrarToast('El PIN debe tener al menos 4 caracteres.', 'error');
+          return;
+        }
+        if (pin !== confirmacion) {
+          this.mostrarToast('Los PIN no coinciden.', 'error');
+          return;
+        }
+        await db.establecerPin(pin);
+      } else {
+        const res = await db.verificarPinPropietario(pin);
+        if (!res.ok) {
+          this.mostrarToast('Clave / PIN incorrecto. Se mantiene la vista de portafolio.', 'error');
+          return;
+        }
+        pinDebil = !!res.pinDebil;
+      }
+    } catch (err) {
+      this.mostrarToast(err.message || 'No se pudo verificar el PIN.', 'error');
       return;
     }
 
-    window.RanchoDB.saveAuthConfig({ rememberSession: recordar });
-    window.RanchoDB.activarModoReal();
+    db.saveAuthConfig({ rememberSession: recordar });
+    db.activarModoReal();
     this.cerrarModal('modalAccesoPrivado');
-    this.mostrarToast('Acceso concedido al padrón privado del rancho.');
+    if (pinDebil) {
+      this.mostrarToast(
+        'Estás usando el PIN por defecto (1234). Cámbialo en "Nube & Dueños" para proteger tu rancho.',
+        'error'
+      );
+    } else {
+      this.mostrarToast('Acceso concedido al padrón privado del rancho.');
+    }
   },
 
   /**
@@ -1708,13 +1845,11 @@ window.RanchoApp = {
 
     const { config } = window.RanchoDB.state;
     const cloud = window.RanchoDB.cloudConfig;
-    const auth = window.RanchoDB.authConfig;
 
     document.getElementById('cfgNombreRancho').value = config.nombreRancho || '';
-    document.getElementById('cfgPropietarioF').value = config.propietarioF || '';
-    document.getElementById('cfgPropietarioH').value = config.propietarioH || '';
+    this.renderListaFierrosConfig(window.RanchoDB.getFierros());
     document.getElementById('cfgEdadDestete').value = config.edadDesteteMeses || 7;
-    document.getElementById('cfgPinAcceso').value = auth.pinHash || '1234';
+    document.getElementById('cfgPinAcceso').value = ''; // el PIN nunca se muestra
 
     document.getElementById('cfgCloudEnabled').checked = !!cloud.enabled;
     document.getElementById('cfgFirebaseProjectId').value = cloud.projectId || '';
@@ -1724,21 +1859,35 @@ window.RanchoApp = {
     document.getElementById('modalConfig').classList.add('open');
   },
 
-  guardarConfiguracion(event) {
+  async guardarConfiguracion(event) {
     event.preventDefault();
-    window.RanchoDB.state.config.nombreRancho =
-      document.getElementById('cfgNombreRancho').value.trim() || 'Rancho Ganadero F & H';
-    window.RanchoDB.state.config.propietarioF =
-      document.getElementById('cfgPropietarioF').value.trim() || 'Propietario Fierro F';
-    window.RanchoDB.state.config.propietarioH =
-      document.getElementById('cfgPropietarioH').value.trim() || 'Propietario Fierro H';
-    window.RanchoDB.state.config.edadDesteteMeses =
-      parseInt(document.getElementById('cfgEdadDestete').value, 10) || 7;
 
     const nuevoPin = document.getElementById('cfgPinAcceso').value.trim();
-    if (nuevoPin) {
-      window.RanchoDB.saveAuthConfig({ pinHash: nuevoPin });
+    if (nuevoPin && nuevoPin.length < 4) {
+      this.mostrarToast('El PIN debe tener al menos 4 caracteres.', 'error');
+      return;
     }
+
+    try {
+      window.RanchoDB.guardarFierros(this.leerListaFierrosConfig());
+    } catch (err) {
+      this.mostrarToast(err.message, 'error');
+      return;
+    }
+
+    if (nuevoPin) {
+      try {
+        await window.RanchoDB.establecerPin(nuevoPin);
+      } catch (err) {
+        this.mostrarToast(err.message || 'No se pudo guardar el PIN.', 'error');
+        return;
+      }
+    }
+
+    window.RanchoDB.state.config.nombreRancho =
+      document.getElementById('cfgNombreRancho').value.trim() || 'Rancho Ganadero F & H';
+    window.RanchoDB.state.config.edadDesteteMeses =
+      parseInt(document.getElementById('cfgEdadDestete').value, 10) || 7;
 
     window.RanchoDB.saveCloudConfig({
       enabled: document.getElementById('cfgCloudEnabled').checked,
@@ -1749,7 +1898,100 @@ window.RanchoApp = {
 
     window.RanchoDB.saveLocal();
     this.cerrarModal('modalConfig');
-    this.mostrarToast('Configuración privada y clave actualizadas.');
+    this.mostrarToast(
+      nuevoPin ? 'Configuración y PIN actualizados.' : 'Configuración privada actualizada.'
+    );
+  },
+
+  /** Pinta el editor de dueños/fierros en la configuración (solo DOM; se guarda al enviar). */
+  renderListaFierrosConfig(fierros) {
+    const lista = document.getElementById('cfgFierrosList');
+    if (!lista) return;
+    lista.innerHTML = fierros.map((f) => this.htmlFilaFierro(f)).join('');
+  },
+
+  htmlFilaFierro(f) {
+    const enUso = f.codigo ? window.RanchoDB.contarAnimalesDeFierro(f.codigo) : 0;
+    const tonos = window.RanchoDB.TONOS.map(
+      (t, i) => `<option value="${i}" ${i === f.tono ? 'selected' : ''}>${esc(t.nombre)}</option>`
+    ).join('');
+    return `
+      <div class="owner-row tono-${f.tono}" data-original="${esc(f.codigo)}">
+        <span class="stamp-fierro tono-${f.tono} owner-stamp" aria-hidden="true">${esc(f.codigo || '?')}</span>
+        <label class="owner-field owner-code">
+          <span class="form-label">Fierro</span>
+          <input type="text" class="form-input input-mono" data-campo="codigo" maxlength="3" value="${esc(f.codigo)}"
+            placeholder="Ej. R" autocapitalize="characters" ${enUso ? 'readonly' : ''}
+            oninput="RanchoApp.previsualizarFilaFierro(this)" />
+        </label>
+        <label class="owner-field owner-name">
+          <span class="form-label">Dueño</span>
+          <input type="text" class="form-input" data-campo="propietario" maxlength="80" value="${esc(f.propietario)}" placeholder="Nombre del dueño" />
+        </label>
+        <label class="owner-field owner-tone">
+          <span class="form-label">Color</span>
+          <select class="form-select" data-campo="tono" onchange="RanchoApp.previsualizarFilaFierro(this)">${tonos}</select>
+        </label>
+        <button type="button" class="btn-icon btn-icon-danger owner-remove" onclick="RanchoApp.quitarFilaFierro(this)"
+          ${enUso ? 'disabled' : ''} aria-label="Quitar Fierro ${esc(f.codigo)}"
+          title="${enUso ? `No se puede quitar: tiene ${enUso} ${enUso === 1 ? 'animal' : 'animales'}` : 'Quitar este fierro'}">
+          <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+            <path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        ${
+          enUso
+            ? `<p class="owner-note">${enUso} ${enUso === 1 ? 'animal registrado' : 'animales registrados'} · el código no se puede cambiar</p>`
+            : ''
+        }
+      </div>`;
+  },
+
+  leerListaFierrosConfig() {
+    return [...document.querySelectorAll('#cfgFierrosList .owner-row')].map((row) => ({
+      codigo: row.querySelector('[data-campo="codigo"]').value,
+      propietario: row.querySelector('[data-campo="propietario"]').value,
+      tono: row.querySelector('[data-campo="tono"]').value
+    }));
+  },
+
+  agregarFilaFierro() {
+    const lista = document.getElementById('cfgFierrosList');
+    if (!lista) return;
+    const actuales = this.leerListaFierrosConfig();
+    const usados = new Set(actuales.map((f) => window.RanchoDB.normalizarCodigoFierro(f.codigo)));
+    const sugerido = 'ABCDEGJKLMNPQRSTUVWXYZ'.split('').find((l) => !usados.has(l)) || '';
+    const tonosUsados = new Set(actuales.map((f) => parseInt(f.tono, 10)));
+    let tono = [...Array(window.RanchoDB.TOTAL_TONOS).keys()].find((t) => !tonosUsados.has(t));
+    if (tono === undefined) tono = actuales.length % window.RanchoDB.TOTAL_TONOS;
+
+    lista.insertAdjacentHTML('beforeend', this.htmlFilaFierro({ codigo: sugerido, propietario: '', tono }));
+    const nueva = lista.lastElementChild;
+    const inputDueno = nueva.querySelector('[data-campo="propietario"]');
+    if (inputDueno) inputDueno.focus();
+  },
+
+  quitarFilaFierro(boton) {
+    const row = boton.closest('.owner-row');
+    if (!row) return;
+    if (document.querySelectorAll('#cfgFierrosList .owner-row').length <= 1) {
+      this.mostrarToast('Debe quedar al menos un fierro en el terreno.', 'error');
+      return;
+    }
+    row.remove();
+  },
+
+  previsualizarFilaFierro(el) {
+    const row = el.closest('.owner-row');
+    if (!row) return;
+    const inputCodigo = row.querySelector('[data-campo="codigo"]');
+    const codigo = window.RanchoDB.normalizarCodigoFierro(inputCodigo.value);
+    if (el === inputCodigo && inputCodigo.value !== codigo) inputCodigo.value = codigo;
+    const tono = parseInt(row.querySelector('[data-campo="tono"]').value, 10) || 0;
+    const stamp = row.querySelector('.owner-stamp');
+    stamp.textContent = codigo || '?';
+    stamp.className = `stamp-fierro tono-${tono} owner-stamp`;
+    row.className = `owner-row tono-${tono}`;
   },
 
   async sincronizarAhoraConNube() {
@@ -1770,33 +2012,66 @@ window.RanchoApp = {
     }
   },
 
-  descargarRespaldoJSON() {
+  descargarRespaldoJSON(prefijo = '') {
     const dataStr = JSON.stringify(window.RanchoDB.state, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `Respaldo_Rancho_FH_${new Date().toISOString().slice(0, 10)}.json`;
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    const etiqueta = typeof prefijo === 'string' && prefijo ? `${prefijo}_` : '';
+    link.download = `Respaldo_Rancho_FH_${etiqueta}${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
 
   importarRespaldoJSON(inputEl) {
     const file = inputEl.files && inputEl.files[0];
     if (!file) return;
+    inputEl.value = ''; // permitir volver a elegir el mismo archivo
+
+    if (file.size > 4 * 1024 * 1024) {
+      this.mostrarToast('El respaldo es demasiado grande (máx. 4 MB).', 'error');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
+      let parsed;
       try {
-        const parsed = JSON.parse(e.target.result);
-        if (parsed && Array.isArray(parsed.animales)) {
-          window.RanchoDB.state = parsed;
-          window.RanchoDB.saveLocal();
-          this.cerrarModal('modalConfig');
-          this.mostrarToast('Respaldo restaurado correctamente.');
-        } else {
-          this.mostrarToast('El archivo seleccionado no tiene un formato válido.', 'error');
-        }
+        parsed = JSON.parse(e.target.result);
       } catch (err) {
-        this.mostrarToast('Error al leer el archivo de respaldo.', 'error');
+        this.mostrarToast('Error al leer el archivo de respaldo (JSON inválido).', 'error');
+        return;
       }
+
+      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.animales)) {
+        this.mostrarToast('El archivo seleccionado no tiene un formato válido.', 'error');
+        return;
+      }
+
+      const db = window.RanchoDB;
+      const limpio = db.normalizarEstado(parsed, db.state.config);
+      const actual = db.state;
+
+      if (
+        !confirm(
+          `¿Restaurar este respaldo?\n\n` +
+            `Respaldo: ${limpio.animales.length} animales, ${limpio.eventosSanitarios.length} registros sanitarios.\n` +
+            `Actual: ${actual.animales.length} animales, ${actual.eventosSanitarios.length} registros sanitarios.\n\n` +
+            `Los datos actuales se REEMPLAZARÁN. Antes se descargará una copia de seguridad de lo que tienes ahora.`
+        )
+      ) {
+        return;
+      }
+
+      this.descargarRespaldoJSON('Antes_de_restaurar');
+      db.state = limpio;
+      db.saveLocal();
+      this.cerrarModal('modalConfig');
+      this.mostrarToast('Respaldo restaurado. Se descargó una copia de los datos anteriores.');
+    };
+    reader.onerror = () => {
+      this.mostrarToast('No se pudo leer el archivo de respaldo.', 'error');
     };
     reader.readAsText(file);
   },
@@ -1826,7 +2101,7 @@ window.RanchoApp = {
     const lista = this.obtenerAnimalesFiltrados(modo);
     const sufijoFierro =
       this.filtroFierro === 'TODOS'
-        ? 'Fierros F y H'
+        ? 'Todos los fierros'
         : `Fierro ${this.filtroFierro}`;
     window.RanchoExports.exportarPDF(lista, `${titulo} (${sufijoFierro})`);
     this.mostrarToast('Generando tabla PDF...');
