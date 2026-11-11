@@ -24,6 +24,87 @@ window.RanchoValidations = {
     return String(val || '').trim().toUpperCase();
   },
 
+  /** Limpia un número de animal tecleado: quita "#" y espacios, mayúsculas. */
+  normalizarNumero(val) {
+    return this.normalizarTexto(val).replace(/^#+/, '').replace(/\s+/g, '');
+  },
+
+  /** Compara números de animal: "15", "#15" y "015" se consideran el mismo número. */
+  mismoNumero(a, b) {
+    const x = this.normalizarNumero(a);
+    const y = this.normalizarNumero(b);
+    if (!x || !y) return false;
+    if (/^\d+$/.test(x) && /^\d+$/.test(y)) return parseInt(x, 10) === parseInt(y, 10);
+    return x === y;
+  },
+
+  /**
+   * Busca en TODO el historial (activos, vendidos y muertos).
+   * Devuelve grupos: coincidencias exactas por número, por arete (actual o anterior) y por texto.
+   * Cada grupo viene ordenado: primero los activos, luego las bajas más recientes.
+   */
+  buscarHistorial(animales, consulta) {
+    const q = String(consulta || '').trim();
+    const vacio = { consulta: q, numero: '', porNumero: [], porArete: [], porTexto: [], total: 0 };
+    if (!q) return vacio;
+
+    const qNum = this.normalizarNumero(q);
+    const qTexto = this.normalizarTexto(q);
+    const usados = new Set();
+
+    const ordenar = (lista) =>
+      lista.sort((a, b) => {
+        const activoA = a.estatus === 'Activo' ? 0 : 1;
+        const activoB = b.estatus === 'Activo' ? 0 : 1;
+        if (activoA !== activoB) return activoA - activoB;
+        const fa = a.fechaBaja || a.fechaNacimiento || '';
+        const fb = b.fechaBaja || b.fechaNacimiento || '';
+        if (fa !== fb) return String(fb).localeCompare(String(fa));
+        return String(a.fierro).localeCompare(String(b.fierro));
+      });
+
+    const porNumero = qNum ? animales.filter((a) => this.mismoNumero(a.numero, qNum)) : [];
+    porNumero.forEach((a) => usados.add(a.id));
+
+    const porArete =
+      qTexto.length >= 3
+        ? animales.filter((a) => {
+            if (usados.has(a.id)) return false;
+            const aretes = [a.arete, ...(Array.isArray(a.aretesAnteriores) ? a.aretesAnteriores : [])];
+            return aretes.some((ar) => this.normalizarTexto(ar).includes(qTexto));
+          })
+        : [];
+    porArete.forEach((a) => usados.add(a.id));
+
+    const porTexto =
+      qTexto.length >= 3
+        ? animales.filter((a) => {
+            if (usados.has(a.id)) return false;
+            return [
+              a.razaColor,
+              a.categoria,
+              a.compradorDestino,
+              a.guiaReemo,
+              a.motivoBaja,
+              a.notas,
+              a.notasBaja,
+              a.madreArete
+            ]
+              .map((v) => this.normalizarTexto(v))
+              .some((v) => v && v.includes(qTexto));
+          })
+        : [];
+
+    return {
+      consulta: q,
+      numero: porNumero.length > 0 || /^#?\s*\d+$/.test(q) ? qNum : '',
+      porNumero: ordenar(porNumero),
+      porArete: ordenar(porArete),
+      porTexto: ordenar(porTexto),
+      total: porNumero.length + porArete.length + porTexto.length
+    };
+  },
+
   /**
    * Regla 1: Número único por Fierro (F o H) entre animales Activos.
    * Permite que exista el #15 en Fierro F y el #15 en Fierro H,
@@ -45,7 +126,7 @@ window.RanchoValidations = {
       (a) =>
         a.id !== excludeId &&
         this.normalizarTexto(a.fierro) === fierroNorm &&
-        this.normalizarTexto(a.numero) === numNorm &&
+        this.mismoNumero(a.numero, numNorm) &&
         a.estatus === 'Activo'
     );
 
@@ -57,19 +138,23 @@ window.RanchoValidations = {
       };
     }
 
-    // Revisar si existió en un animal dado de baja (solo informativo)
-    const antecedenteBaja = animales.find(
-      (a) =>
-        a.id !== excludeId &&
-        this.normalizarTexto(a.fierro) === fierroNorm &&
-        this.normalizarTexto(a.numero) === numNorm &&
-        a.estatus !== 'Activo'
-    );
+    // Revisar si existió en animales dados de baja (solo informativo: el número se puede reutilizar)
+    const antecedentes = animales
+      .filter(
+        (a) =>
+          a.id !== excludeId &&
+          this.normalizarTexto(a.fierro) === fierroNorm &&
+          this.mismoNumero(a.numero, numNorm) &&
+          a.estatus !== 'Activo'
+      )
+      .sort((a, b) => String(b.fechaBaja || '').localeCompare(String(a.fechaBaja || '')));
 
-    if (antecedenteBaja) {
+    if (antecedentes.length > 0) {
+      const ultimo = antecedentes[0];
+      const veces = antecedentes.length === 1 ? 'un animal' : `${antecedentes.length} animales`;
       return {
         valido: true,
-        aviso: `Disponible en Fierro ${fierroNorm} (Nota: Este número perteneció antes a un animal dado de baja por ${antecedenteBaja.estatus.toLowerCase()} en ${antecedenteBaja.fechaBaja || 'fecha previa'}).`
+        aviso: `Disponible en el Fierro ${fierroNorm}. Este número lo usó antes ${veces} dado de baja (el último: ${ultimo.estatus.toLowerCase()} el ${ultimo.fechaBaja || 'fecha sin registrar'}). Su historial se conserva en el buscador.`
       };
     }
 

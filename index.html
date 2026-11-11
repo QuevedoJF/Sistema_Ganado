@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=6" />
+  <link rel="stylesheet" href="./css/styles.css?v=7" />
   <!-- Librerías para exportar Tablas en Excel (.xlsx) y PDF -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -37,6 +37,12 @@
         <span class="mobile-brand-title" id="mobileRanchoNombre">Rancho Ganadero</span>
         <span class="mobile-brand-status"><span id="mobileSyncDot" class="sync-dot demo"></span><span id="mobileSessionStatus">Vista Portafolio</span></span>
       </div>
+      <button type="button" class="btn-topbar-icon" onclick="RanchoApp.abrirBuscador()" aria-label="Buscar en el historial">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="8.5" cy="8.5" r="5.5" />
+          <path d="M13 13l4 4" stroke-linecap="round" />
+        </svg>
+      </button>
       <button type="button" class="btn-topbar-icon" onclick="RanchoApp.abrirModalConfiguracion()" aria-label="Dueños, fierros y nube">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
           <circle cx="7.5" cy="7" r="2.75" />
@@ -93,6 +99,15 @@
             </svg>
             <span class="nav-tab-text">Padrón en corral</span>
             <span id="badgeCountInventario" class="tab-badge">0</span>
+          </button>
+
+          <button class="nav-tab" data-tab="buscar" onclick="RanchoApp.abrirBuscador()">
+            <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <circle cx="8.5" cy="8.5" r="5.5" />
+              <path d="M13 13l4 4" stroke-linecap="round" />
+            </svg>
+            <span class="nav-tab-text">Buscar en historial</span>
+            <kbd class="nav-kbd" aria-hidden="true">/</kbd>
           </button>
 
           <button class="nav-tab" data-tab="genealogia" onclick="RanchoApp.cambiarTab('genealogia')">
@@ -631,6 +646,11 @@
                 <label class="form-label" for="cfgFirebaseApiKey">Firebase Web API Key</label>
                 <input type="text" id="cfgFirebaseApiKey" class="form-input input-mono" placeholder="AIzaSy..." />
               </div>
+
+              <div class="form-group full-width">
+                <span class="form-label">Cuenta de la nube</span>
+                <div id="cfgCloudCuenta" class="cloud-account"></div>
+              </div>
             </div>
           </div>
 
@@ -724,9 +744,9 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- SCRIPTS DEL SISTEMA -->
-  <script src="./js/validations.js?v=6"></script>
-  <script src="./js/db.js?v=6"></script>
-  <script src="./js/exports.js?v=6"></script>
-  <script src="./js/app.js?v=6"></script>
+  <script src="./js/validations.js?v=7"></script>
+  <script src="./js/db.js?v=7"></script>
+  <script src="./js/exports.js?v=7"></script>
+  <script src="./js/app.js?v=7"></script>
 </body>
 </html>

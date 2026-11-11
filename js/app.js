@@ -25,8 +25,9 @@ function esc(valor) {
 
 window.RanchoApp = {
   filtroFierro: 'TODOS', // 'TODOS' o el código de un fierro (ej. 'F', 'H', 'R')
-  tabActiva: 'inventario', // 'inventario' | 'bajas' | 'sanidad' | 'genealogia'
+  tabActiva: 'inventario', // 'inventario' | 'buscar' | 'bajas' | 'sanidad' | 'genealogia'
   busquedaTexto: '',
+  busquedaHistorial: '',
   filtroSexo: 'TODOS',
   filtroCategoria: 'TODAS',
   filtroAreteEstado: 'TODOS',
@@ -50,6 +51,12 @@ window.RanchoApp = {
 
   registrarAtajosModales() {
     document.addEventListener('keydown', (e) => {
+      const escribiendo = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '');
+      if (e.key === '/' && !escribiendo && !document.querySelector('.modal-backdrop.open')) {
+        e.preventDefault();
+        this.abrirBuscador();
+        return;
+      }
       if (e.key !== 'Escape') return;
       const abierto = [...document.querySelectorAll('.modal-backdrop.open')].pop();
       if (abierto) {
@@ -89,7 +96,10 @@ window.RanchoApp = {
     const toast = document.createElement('div');
     toast.className = `toast ${tipo === 'error' ? 'error' : ''}`;
     toast.textContent = mensaje;
+    toast.setAttribute('role', tipo === 'error' ? 'alert' : 'status');
     container.appendChild(toast);
+    // Máximo 3 avisos a la vista: se quitan los más viejos
+    while (container.children.length > 3) container.firstElementChild.remove();
     setTimeout(() => {
       toast.remove();
     }, 4000);
@@ -230,6 +240,7 @@ window.RanchoApp = {
     // Actualizar título dinámico del área de trabajo
     const titulos = {
       inventario: 'Padrón de Ganado Activo',
+      buscar: 'Buscar en todo el historial',
       genealogia: 'Registro Genealógico (Madres y Crías)',
       sanidad: 'Bitácora de Sanidad, Pesajes y Destetes',
       bajas: 'Registro Histórico de Ventas y Bajas'
@@ -518,7 +529,15 @@ window.RanchoApp = {
     const container = document.getElementById('mainViewContainer');
     if (!container) return;
 
-    if (this.tabActiva === 'inventario') {
+    // Conservar el foco y la posición del cursor del campo de búsqueda al volver a pintar
+    const activo = document.activeElement;
+    const focoId = activo && container.contains(activo) && activo.id ? activo.id : null;
+    const cursor = focoId && typeof activo.selectionStart === 'number' ? activo.selectionStart : null;
+
+    container.dataset.vista = this.tabActiva;
+    if (this.tabActiva === 'buscar') {
+      this.renderVistaBuscador(container);
+    } else if (this.tabActiva === 'inventario') {
       this.renderTablaInventario(container, 'Activo');
     } else if (this.tabActiva === 'bajas') {
       this.renderTablaInventario(container, 'Bajas');
@@ -527,6 +546,176 @@ window.RanchoApp = {
     } else if (this.tabActiva === 'genealogia') {
       this.renderVistaGenealogia(container);
     }
+
+    if (focoId) {
+      const el = document.getElementById(focoId);
+      if (el) {
+        el.focus();
+        if (cursor !== null && typeof el.setSelectionRange === 'function') {
+          el.setSelectionRange(cursor, cursor);
+        }
+      }
+    }
+  },
+
+  /**
+   * BUSCADOR DE HISTORIAL: activos, vendidos y muertos.
+   * El campo se pinta una sola vez; al escribir solo se actualizan los resultados.
+   */
+  abrirBuscador(texto = null) {
+    if (texto !== null) this.busquedaHistorial = String(texto);
+    this.tabActiva = 'buscar';
+    this.toggleSidebar(false);
+    this.renderTodo();
+    const input = document.getElementById('inputHistorial');
+    if (input) {
+      input.focus();
+      const fin = input.value.length;
+      input.setSelectionRange(fin, fin);
+    }
+  },
+
+  renderVistaBuscador(container) {
+    if (!document.getElementById('inputHistorial')) {
+      container.innerHTML = `
+        <div class="ledger-card history-card">
+          <div class="history-search">
+            <label class="form-label" for="inputHistorial">Número, arete, comprador o nota</label>
+            <div class="search-box search-box-lg">
+              <svg class="search-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="8.5" cy="8.5" r="5.5" />
+                <path d="M13 13l4 4" stroke-linecap="round" />
+              </svg>
+              <input type="search" id="inputHistorial" inputmode="search" autocomplete="off"
+                placeholder="Ej. 15, #15, MX-260015, Comercializadora…"
+                oninput="RanchoApp.actualizarBusquedaHistorial(this.value)" />
+            </div>
+            <p class="form-help-text">Incluye animales vendidos y muertos. Un número dado de baja se puede volver a usar; aquí se ven todos los animales que lo han llevado.</p>
+          </div>
+          <div id="historialResultados" class="history-results" aria-live="polite"></div>
+        </div>`;
+    }
+    const input = document.getElementById('inputHistorial');
+    if (input.value !== this.busquedaHistorial) input.value = this.busquedaHistorial;
+    this.renderResultadosHistorial();
+  },
+
+  actualizarBusquedaHistorial(valor) {
+    this.busquedaHistorial = valor;
+    this.renderResultadosHistorial();
+  },
+
+  renderResultadosHistorial() {
+    const destino = document.getElementById('historialResultados');
+    if (!destino) return;
+
+    const todos = window.RanchoDB.state.animales;
+    const fFiltro = window.RanchoDB.getFierro(this.filtroFierro);
+    const universo = fFiltro ? todos.filter((a) => a.fierro === fFiltro.codigo) : todos;
+    const r = window.RanchoValidations.buscarHistorial(universo, this.busquedaHistorial);
+
+    const notaFiltro = fFiltro
+      ? `<p class="history-filter-note">Buscando solo en el Fierro ${esc(fFiltro.codigo)} (${esc(fFiltro.propietario)}).
+          <button type="button" class="btn-link-action" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">Buscar en todos los fierros</button></p>`
+      : '';
+
+    if (!r.consulta) {
+      destino.innerHTML = `${notaFiltro}
+        <div class="history-empty">
+          <p><strong>${universo.length}</strong> animales en el historial:
+          ${universo.filter((a) => a.estatus === 'Activo').length} activos,
+          ${universo.filter((a) => a.estatus === 'Vendido').length} vendidos y
+          ${universo.filter((a) => a.estatus === 'Muerto').length} muertos.</p>
+          <p>Escribe un número para ver todos los animales que lo han llevado.</p>
+        </div>`;
+      return;
+    }
+
+    const grupo = (titulo, lista) =>
+      lista.length === 0
+        ? ''
+        : `<section class="history-group">
+            <h3 class="history-group-title">${titulo} <span class="history-count">${lista.length}</span></h3>
+            <ul class="history-list">${lista.map((a) => this.htmlItemHistorial(a)).join('')}</ul>
+          </section>`;
+
+    let resumen = '';
+    if (r.numero) {
+      const n = r.porNumero;
+      const activos = n.filter((a) => a.estatus === 'Activo');
+      const bajas = n.length - activos.length;
+      const fierros = window.RanchoDB.getFierros().filter((f) => !fFiltro || f.codigo === fFiltro.codigo);
+      const libres = fierros.filter(
+        (f) => !activos.some((a) => a.fierro === f.codigo)
+      );
+      resumen =
+        n.length === 0
+          ? `<div class="history-summary">Ningún animal ha llevado el <strong>#${esc(r.numero)}</strong>. Está libre en ${fierros.length === 1 ? 'el fierro' : 'todos los fierros'}.</div>`
+          : `<div class="history-summary">
+              El <strong>#${esc(r.numero)}</strong> aparece en <strong>${n.length}</strong> ${n.length === 1 ? 'registro' : 'registros'}:
+              ${activos.length} ${activos.length === 1 ? 'activo' : 'activos'} · ${bajas} ${bajas === 1 ? 'dado de baja' : 'dados de baja'}.
+              ${
+                libres.length > 0
+                  ? `<span class="history-free">Libre en: ${libres.map((f) => sello(f.codigo, 'stamp-sm')).join(' ')}</span>`
+                  : ''
+              }
+            </div>`;
+    }
+
+    const cuerpo =
+      grupo(r.numero ? `Animales con el número #${esc(r.numero)}` : 'Por número', r.porNumero) +
+      grupo('Por arete (actual o anterior)', r.porArete) +
+      grupo('Por raza, comprador, guía o notas', r.porTexto);
+
+    destino.innerHTML =
+      notaFiltro +
+      resumen +
+      (r.total === 0 && !r.numero
+        ? `<div class="history-empty"><p>No hay ningún animal que coincida con «${esc(r.consulta)}».</p></div>`
+        : cuerpo);
+  },
+
+  htmlItemHistorial(a) {
+    const edad = window.RanchoValidations.calcularEdad(a.fechaNacimiento, a.fechaBaja || null);
+    const activo = a.estatus === 'Activo';
+    const fierro = window.RanchoDB.getFierro(a.fierro);
+    const salida = activo
+      ? ''
+      : a.estatus === 'Vendido'
+      ? `Vendido el ${esc(a.fechaBaja || 'fecha sin registrar')}${a.compradorDestino ? ` a ${esc(a.compradorDestino)}` : ''}`
+      : `Murió el ${esc(a.fechaBaja || 'fecha sin registrar')}${a.motivoBaja ? ` · ${esc(a.motivoBaja)}` : ''}`;
+    const aretesPrevios =
+      Array.isArray(a.aretesAnteriores) && a.aretesAnteriores.length > 0
+        ? ` · antes: ${esc(a.aretesAnteriores.join(', '))}`
+        : '';
+
+    return `
+      <li class="history-item ${activo ? '' : 'is-baja'}">
+        <div class="history-id">
+          ${sello(a.fierro)}
+          <span class="history-num">#${esc(a.numero)}</span>
+          <span class="badge-status badge-status-${esc(a.estatus)}">${esc(a.estatus)}</span>
+        </div>
+        <div class="history-info">
+          <div class="history-line">
+            <strong>${esc(a.sexo)}</strong> · ${esc(a.categoria || 'Sin categoría')}${a.razaColor ? ` · ${esc(a.razaColor)}` : ''}
+          </div>
+          <div class="history-meta">
+            Arete <span class="arete-code">${esc(a.arete || 'S/N')}</span>${aretesPrevios}
+            · Nac. ${esc(a.fechaNacimiento || 'sin fecha')} (${esc(edad.texto)})
+            ${fierro ? `· ${esc(fierro.propietario)}` : ''}
+          </div>
+          ${salida ? `<div class="history-exit">${salida}</div>` : ''}
+        </div>
+        <div class="history-actions">
+          <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(a.id)}')">Expediente</button>
+          ${
+            activo
+              ? `<button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${esc(a.id)}')">Editar</button>`
+              : `<button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">Datos de salida</button>`
+          }
+        </div>
+      </li>`;
   },
 
   renderTablaInventario(container, modoEstatus) {
@@ -763,6 +952,16 @@ window.RanchoApp = {
             </select>
           </div>
         </div>
+
+        ${
+          this.busquedaTexto.trim()
+            ? `<div class="history-hint">
+                <button type="button" class="btn-link-action" onclick="RanchoApp.abrirBuscador(RanchoApp.busquedaTexto)">
+                  Buscar «${esc(this.busquedaTexto.trim())}» en todo el historial (incluye vendidos y muertos)
+                </button>
+              </div>`
+            : ''
+        }
 
         <div class="table-scroll desktop-only">
           <table class="ganado-table">
@@ -1456,10 +1655,12 @@ window.RanchoApp = {
     });
 
     this.cerrarModal('modalBaja');
+    const animalBaja = window.RanchoDB.state.animales.find((a) => a.id === animalId);
+    const libre = animalBaja
+      ? ` El #${animalBaja.numero} del Fierro ${animalBaja.fierro} queda libre; el registro se conserva en el historial.`
+      : '';
     this.mostrarToast(
-      tipoBaja === 'Vendido'
-        ? `Venta registrada a ${comprador}`
-        : `Baja por muerte registrada correctamente.`
+      (tipoBaja === 'Vendido' ? `Venta registrada a ${comprador}.` : 'Baja por muerte registrada.') + libre
     );
   },
 
@@ -1855,6 +2056,7 @@ window.RanchoApp = {
     document.getElementById('cfgFirebaseProjectId').value = cloud.projectId || '';
     document.getElementById('cfgFirebaseApiKey').value = cloud.apiKey || '';
     document.getElementById('cfgRanchoCode').value = cloud.ranchoCode || 'RANCHO-FH-PRIVADO';
+    this.renderCuentaNube();
 
     document.getElementById('modalConfig').classList.add('open');
   },
@@ -1994,8 +2196,96 @@ window.RanchoApp = {
     row.className = `owner-row tono-${tono}`;
   },
 
+  /** Muestra el formulario de inicio de sesión o la cuenta conectada (con su UID para las reglas). */
+  renderCuentaNube() {
+    const cont = document.getElementById('cfgCloudCuenta');
+    if (!cont) return;
+    const db = window.RanchoDB;
+    if (db.estaConectadoNube()) {
+      cont.innerHTML = `
+        <div class="cloud-account-on">
+          <div class="cloud-account-who">
+            <span class="sync-dot cloud" aria-hidden="true"></span>
+            <span>Conectado como <strong>${esc(db.cloudAuth.email)}</strong></span>
+          </div>
+          <div class="cloud-uid">
+            <span class="form-label">Tu UID (para el campo «miembros»)</span>
+            <div class="cloud-uid-row">
+              <code id="cfgCloudUid">${esc(db.cloudAuth.uid)}</code>
+              <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.copiarUidNube()">Copiar</button>
+            </div>
+          </div>
+          <div class="cloud-account-actions">
+            <button type="button" class="btn btn-primary btn-sm" onclick="RanchoApp.sincronizarAhoraConNube()">Sincronizar ahora</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarSesionNubeDesdeForm()">Cerrar sesión de la nube</button>
+          </div>
+        </div>`;
+    } else {
+      cont.innerHTML = `
+        <div class="cloud-login">
+          <input type="email" id="cfgCloudEmail" class="form-input" placeholder="correo@ejemplo.com" autocomplete="username" aria-label="Correo de la cuenta de Firebase" />
+          <input type="password" id="cfgCloudPassword" class="form-input" placeholder="Contraseña" autocomplete="current-password" aria-label="Contraseña de la cuenta de Firebase"
+            onkeydown="if (event.key === 'Enter') { event.preventDefault(); RanchoApp.iniciarSesionNubeDesdeForm(); }" />
+          <button type="button" id="btnCloudLogin" class="btn btn-primary" onclick="RanchoApp.iniciarSesionNubeDesdeForm()">Iniciar sesión</button>
+        </div>
+        <p class="form-help-text">Usa una cuenta creada en Firebase › Authentication › Usuarios. La contraseña no se guarda en este dispositivo.</p>`;
+    }
+  },
+
+  async iniciarSesionNubeDesdeForm() {
+    const email = document.getElementById('cfgCloudEmail').value.trim();
+    const password = document.getElementById('cfgCloudPassword').value;
+    const apiKey = document.getElementById('cfgFirebaseApiKey').value.trim();
+    if (!email || !password) {
+      this.mostrarToast('Escribe el correo y la contraseña de la cuenta de la nube.', 'error');
+      return;
+    }
+    const boton = document.getElementById('btnCloudLogin');
+    boton.disabled = true;
+    boton.textContent = 'Conectando…';
+    try {
+      // Guardar primero el proyecto y la API Key escritos en el formulario
+      window.RanchoDB.saveCloudConfig({
+        projectId: document.getElementById('cfgFirebaseProjectId').value.trim(),
+        apiKey,
+        ranchoCode: document.getElementById('cfgRanchoCode').value.trim() || 'RANCHO-FH-PRIVADO'
+      });
+      const cuenta = await window.RanchoDB.iniciarSesionNube(email, password, apiKey);
+      this.renderCuentaNube();
+      this.mostrarToast(`Sesión de la nube iniciada: ${cuenta.email}`);
+    } catch (err) {
+      this.mostrarToast(err.message || 'No se pudo iniciar sesión en la nube.', 'error');
+      boton.disabled = false;
+      boton.textContent = 'Iniciar sesión';
+    }
+  },
+
+  cerrarSesionNubeDesdeForm() {
+    window.RanchoDB.cerrarSesionNube();
+    this.renderCuentaNube();
+    this.mostrarToast('Sesión de la nube cerrada en este dispositivo.');
+  },
+
+  async copiarUidNube() {
+    const uid = window.RanchoDB.cloudAuth.uid;
+    try {
+      await navigator.clipboard.writeText(uid);
+      this.mostrarToast('UID copiado.');
+    } catch (e) {
+      const el = document.getElementById('cfgCloudUid');
+      if (el) window.getSelection().selectAllChildren(el);
+      this.mostrarToast('Selecciona y copia el UID manualmente.', 'error');
+    }
+  },
+
   async sincronizarAhoraConNube() {
     if (!window.RanchoDB.cloudConfig.enabled) {
+      this.mostrarToast('Activa primero la sincronización en la nube y guarda la configuración.', 'error');
+      this.abrirModalConfiguracion();
+      return;
+    }
+    if (window.RanchoDB.cloudConfig.provider === 'firebase' && !window.RanchoDB.estaConectadoNube()) {
+      this.mostrarToast('Inicia sesión en la nube para sincronizar.', 'error');
       this.abrirModalConfiguracion();
       return;
     }
@@ -2006,7 +2296,9 @@ window.RanchoApp = {
       this.mostrarToast('Sincronización en la nube completada.');
     } else {
       this.mostrarToast(
-        'Datos guardados localmente. Verifica el Project ID de Firebase o tu conexión.',
+        res.error
+          ? `Datos guardados en el dispositivo. ${res.error}`
+          : 'Datos guardados en el dispositivo. Verifica el Project ID de Firebase o tu conexión.',
         'error'
       );
     }

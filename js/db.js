@@ -8,6 +8,7 @@ const STORAGE_KEY_REAL = 'rancho_fh_privado_real_v1';
 const STORAGE_KEY_DEMO = 'rancho_fh_demo_portfolio_v1';
 const STORAGE_KEY_CLOUD = 'rancho_fh_cloud_config_v1';
 const STORAGE_KEY_AUTH = 'rancho_fh_auth_config_v1';
+const STORAGE_KEY_CLOUD_AUTH = 'rancho_fh_cloud_auth_v1';
 
 window.RanchoDB = {
   // 'DEMO' (visitantes del portafolio) | 'REAL' (propietarios autenticados)
@@ -46,11 +47,16 @@ window.RanchoDB = {
     statusText: 'Modo Portafolio (Datos de prueba)'
   },
 
+  // Sesión de Firebase Authentication (correo y contraseña). La contraseña NUNCA se guarda:
+  // solo el token de refresco que Firebase entrega, igual que hace el SDK oficial.
+  cloudAuth: { email: '', uid: '', idToken: '', refreshToken: '', expiresAt: 0 },
+
   listeners: [],
 
   init() {
     this.loadAuthConfig();
     this.loadCloudConfig();
+    this.loadCloudAuth();
 
     // Revisar si la URL pide explícitamente ?modo=portafolio o ?demo=1
     const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
@@ -471,6 +477,8 @@ window.RanchoDB = {
     const isOnline = navigator.onLine;
     if (!isOnline) {
       this.cloudConfig.statusText = 'Sin señal en corral (Guardado local)';
+    } else if (this.cloudConfig.enabled && this.cloudConfig.provider === 'firebase' && !this.estaConectadoNube()) {
+      this.cloudConfig.statusText = 'Inicia sesión en la nube para sincronizar';
     } else if (this.cloudConfig.enabled) {
       this.cloudConfig.statusText = this.cloudConfig.pendingSync
         ? 'Sincronizando con la nube...'
@@ -506,6 +514,137 @@ window.RanchoDB = {
     this.notify();
   },
 
+  /* ------------------------------------------------------------------
+   * FIREBASE AUTHENTICATION (REST, sin SDK)
+   * ------------------------------------------------------------------ */
+  loadCloudAuth() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY_CLOUD_AUTH);
+      if (raw) this.cloudAuth = { ...this.cloudAuth, ...JSON.parse(raw) };
+    } catch (e) {
+      console.warn('Error leyendo la sesión de la nube:', e);
+    }
+  },
+
+  _guardarCloudAuth() {
+    this._guardarSeguro(STORAGE_KEY_CLOUD_AUTH, JSON.stringify(this.cloudAuth));
+  },
+
+  estaConectadoNube() {
+    return !!(this.cloudAuth.refreshToken && this.cloudAuth.uid);
+  },
+
+  _mensajeErrorAuth(data) {
+    const codigo = String((data && data.error && data.error.message) || '').split(' ')[0];
+    const mensajes = {
+      EMAIL_NOT_FOUND: 'Correo o contraseña incorrectos.',
+      INVALID_PASSWORD: 'Correo o contraseña incorrectos.',
+      INVALID_LOGIN_CREDENTIALS: 'Correo o contraseña incorrectos.',
+      INVALID_EMAIL: 'El correo no tiene un formato válido.',
+      MISSING_PASSWORD: 'Escribe la contraseña.',
+      USER_DISABLED: 'Esta cuenta está deshabilitada en Firebase.',
+      TOO_MANY_ATTEMPTS_TRY_LATER: 'Demasiados intentos. Espera unos minutos y vuelve a intentar.',
+      OPERATION_NOT_ALLOWED:
+        'Activa el proveedor "Correo electrónico/contraseña" en Firebase › Authentication › Método de acceso.',
+      CONFIGURATION_NOT_FOUND:
+        'Firebase Authentication no está activado en este proyecto (Authentication › Comenzar).',
+      API_KEY_INVALID: 'La Web API Key no es válida para este proyecto.'
+    };
+    if (mensajes[codigo]) return mensajes[codigo];
+    if (/API key not valid/i.test(String(data && data.error && data.error.message))) {
+      return mensajes.API_KEY_INVALID;
+    }
+    return `No se pudo iniciar sesión (${codigo || 'error desconocido'}).`;
+  },
+
+  /** Inicia sesión con correo y contraseña. La contraseña solo se envía a Google, no se guarda. */
+  async iniciarSesionNube(email, password, apiKey) {
+    const key = String(apiKey || this.cloudConfig.apiKey || '').trim();
+    if (!key) throw new Error('Primero escribe la Web API Key de Firebase.');
+    if (!navigator.onLine) throw new Error('Necesitas internet para iniciar sesión en la nube.');
+
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: String(email || '').trim(), password, returnSecureToken: true })
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(this._mensajeErrorAuth(data));
+
+    this.cloudAuth = {
+      email: data.email,
+      uid: data.localId,
+      idToken: data.idToken,
+      refreshToken: data.refreshToken,
+      expiresAt: Date.now() + (parseInt(data.expiresIn, 10) || 3600) * 1000
+    };
+    this._guardarCloudAuth();
+    this.updateNetworkStatus();
+    return { email: data.email, uid: data.localId };
+  },
+
+  cerrarSesionNube() {
+    this.cloudAuth = { email: '', uid: '', idToken: '', refreshToken: '', expiresAt: 0 };
+    localStorage.removeItem(STORAGE_KEY_CLOUD_AUTH);
+    this.updateNetworkStatus();
+  },
+
+  /** Devuelve un ID token vigente; lo renueva con el token de refresco cuando caduca (cada hora). */
+  async _obtenerTokenNube() {
+    if (!this.estaConectadoNube()) return null;
+    if (this.cloudAuth.idToken && Date.now() < this.cloudAuth.expiresAt - 60000) {
+      return this.cloudAuth.idToken;
+    }
+    const key = this.cloudConfig.apiKey;
+    const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(this.cloudAuth.refreshToken)}`
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 400) {
+        // Token revocado, usuario borrado/deshabilitado o contraseña cambiada
+        this.cerrarSesionNube();
+        throw new Error('La sesión de la nube expiró. Vuelve a iniciar sesión.');
+      }
+      throw new Error(`No se pudo renovar la sesión de la nube (${res.status}).`);
+    }
+    this.cloudAuth = {
+      ...this.cloudAuth,
+      idToken: data.id_token,
+      refreshToken: data.refresh_token || this.cloudAuth.refreshToken,
+      uid: data.user_id || this.cloudAuth.uid,
+      expiresAt: Date.now() + (parseInt(data.expires_in, 10) || 3600) * 1000
+    };
+    this._guardarCloudAuth();
+    return this.cloudAuth.idToken;
+  },
+
+  _rutasFirestore() {
+    const proyecto = encodeURIComponent(this.cloudConfig.projectId);
+    const docId = encodeURIComponent(this.cloudConfig.ranchoCode || 'RANCHO-FH-PRIVADO');
+    const coleccion = `https://firestore.googleapis.com/v1/projects/${proyecto}/databases/(default)/documents/ranchos`;
+    return { coleccion, documento: `${coleccion}/${docId}`, docId };
+  },
+
+  /** fetch a Firestore con el token del usuario (las reglas de seguridad lo exigen). */
+  async _fetchFirestore(url, opciones = {}) {
+    const token = await this._obtenerTokenNube();
+    if (!token) throw new Error('Inicia sesión en la nube (Dueños, fierros y nube › Cuenta de la nube).');
+    return fetch(url, {
+      ...opciones,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(opciones.headers || {}),
+        Authorization: `Bearer ${token}`
+      }
+    });
+  },
+
   async syncToCloud() {
     if (this.sessionMode !== 'REAL' || !this.cloudConfig.enabled || !navigator.onLine) {
       return { ok: false, reason: 'not_real_or_offline' };
@@ -513,30 +652,52 @@ window.RanchoDB = {
 
     try {
       const payload = JSON.stringify(this.state);
-      let url = '';
 
       if (this.cloudConfig.provider === 'firebase' && this.cloudConfig.projectId) {
-        const docId = encodeURIComponent(this.cloudConfig.ranchoCode || 'RANCHO-FH-PRIVADO');
-        const keyParam = this.cloudConfig.apiKey
-          ? `?key=${encodeURIComponent(this.cloudConfig.apiKey)}`
-          : '';
-        url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
-          this.cloudConfig.projectId
-        )}/databases/(default)/documents/ranchos/${docId}${keyParam}`;
+        if (!this.estaConectadoNube()) {
+          this.cloudConfig.pendingSync = true;
+          this.updateNetworkStatus();
+          return { ok: false, reason: 'sin_sesion' };
+        }
 
-        const firestoreBody = {
-          fields: {
-            ranchoCode: { stringValue: this.cloudConfig.ranchoCode || 'RANCHO-FH-PRIVADO' },
-            updatedAt: { stringValue: new Date().toISOString() },
-            payloadJson: { stringValue: payload }
-          }
+        const { coleccion, documento, docId } = this._rutasFirestore();
+        const campos = {
+          ranchoCode: { stringValue: this.cloudConfig.ranchoCode || 'RANCHO-FH-PRIVADO' },
+          updatedAt: { stringValue: new Date().toISOString() },
+          payloadJson: { stringValue: payload }
         };
+        // Solo se actualizan estos campos: "miembros" nunca se toca desde la app
+        const mascara = Object.keys(campos)
+          .map((f) => `updateMask.fieldPaths=${f}`)
+          .join('&');
 
-        const res = await fetch(url, {
+        let res = await this._fetchFirestore(`${documento}?${mascara}&currentDocument.exists=true`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(firestoreBody)
+          body: JSON.stringify({ fields: campos })
         });
+
+        if (res.status === 404 || res.status === 403) {
+          // El documento aún no existe: se crea con esta cuenta como primer miembro.
+          // Si ya existe y la cuenta no es miembro, Firestore lo rechaza (403/409).
+          const crear = await this._fetchFirestore(`${coleccion}?documentId=${docId}`, {
+            method: 'POST',
+            body: JSON.stringify({
+              fields: {
+                ...campos,
+                miembros: { arrayValue: { values: [{ stringValue: this.cloudAuth.uid }] } }
+              }
+            })
+          });
+          if (crear.ok) {
+            res = crear;
+          } else if (crear.status === 409 || crear.status === 403) {
+            throw new Error(
+              'Tu cuenta no es miembro de este rancho en la nube. Pide que agreguen tu UID al campo "miembros".'
+            );
+          } else {
+            throw new Error(`Error Firestore (${crear.status})`);
+          }
+        }
 
         if (!res.ok) {
           throw new Error(`Error Firestore (${res.status})`);
@@ -577,20 +738,16 @@ window.RanchoDB = {
       let remoteState = null;
 
       if (this.cloudConfig.provider === 'firebase' && this.cloudConfig.projectId) {
-        const docId = encodeURIComponent(this.cloudConfig.ranchoCode || 'RANCHO-FH-PRIVADO');
-        const keyParam = this.cloudConfig.apiKey
-          ? `?key=${encodeURIComponent(this.cloudConfig.apiKey)}`
-          : '';
-        const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
-          this.cloudConfig.projectId
-        )}/databases/(default)/documents/ranchos/${docId}${keyParam}`;
-
-        const res = await fetch(url);
+        if (!this.estaConectadoNube()) return { ok: false, reason: 'sin_sesion' };
+        const res = await this._fetchFirestore(this._rutasFirestore().documento, { method: 'GET' });
         if (res.ok) {
           const data = await res.json();
           if (data.fields && data.fields.payloadJson && data.fields.payloadJson.stringValue) {
             remoteState = JSON.parse(data.fields.payloadJson.stringValue);
           }
+        } else if (res.status !== 404 && res.status !== 403) {
+          // 404/403: el rancho todavía no existe en la nube (se creará al sincronizar)
+          throw new Error(`Error Firestore (${res.status})`);
         }
       } else if (this.cloudConfig.customEndpoint) {
         const res = await fetch(this.cloudConfig.customEndpoint);
