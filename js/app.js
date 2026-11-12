@@ -2050,6 +2050,10 @@ window.RanchoApp = {
     }
     this.cerrarModal('modalAccesoPrivado');
     this.mostrarToast(`Bienvenido. Rancho: ${window.RanchoDB.ranchoActual.nombre}`);
+    if (window.RanchoDB.debeCambiarContrasena()) {
+      this.pedirCambioDeContrasena();
+      return;
+    }
     this.ofrecerSubirDatosAntiguos();
   },
 
@@ -2077,6 +2081,18 @@ window.RanchoApp = {
     this.cerrarModal('modalAccesoPrivado');
     this.mostrarToast('Cuenta de administrador creada. Ya estás dentro de tu rancho.');
     this.ofrecerSubirDatosAntiguos();
+  },
+
+  /** Abre la cuenta con el formulario de contraseña listo (contraseña temporal). */
+  pedirCambioDeContrasena() {
+    this.abrirModalConfiguracion('cfgSeccionCuenta');
+    const det = document.querySelector('#cfgCuenta .account-password');
+    if (det) det.open = true;
+    this.mostrarToast('Estás usando una contraseña temporal: cámbiala por una tuya.', 'error');
+    setTimeout(() => {
+      const el = document.getElementById('cfgPassActual');
+      if (el) el.focus();
+    }, 120);
   },
 
   /** Si este navegador tiene datos de la versión anterior (con PIN), ofrece subirlos al servidor. */
@@ -2315,6 +2331,7 @@ window.RanchoApp = {
       document.getElementById('cfgPassActual').value = '';
       document.getElementById('cfgPassNueva').value = '';
       this.mostrarToast('Contraseña cambiada. Las sesiones de tus otros dispositivos se cerraron.');
+      this.renderAvisosSync();
     } catch (err) {
       this.mostrarToast(err.message, 'error');
     }
@@ -2358,7 +2375,7 @@ window.RanchoApp = {
         <span class="sync-dot ${!navigator.onLine ? 'offline' : pendientes || rechazos.length ? '' : 'cloud'}" aria-hidden="true"></span>
         <span>${esc(db.cloudConfig.statusText)}</span>
       </div>
-      <p class="form-help-text">Última sincronización: ${esc(ultima)}. Puedes trabajar sin señal: los cambios se guardan en el dispositivo y se suben solos al volver la conexión.</p>
+      <p class="form-help-text">Última sincronización: ${esc(ultima)} · Puedes trabajar sin señal: los cambios se guardan en el dispositivo y se suben solos al volver la conexión.</p>
       ${
         rechazos.length
           ? `<div class="rejected-list">
@@ -2425,7 +2442,10 @@ window.RanchoApp = {
     }
     const rechazos = Object.keys(db.rechazos || {}).length;
     let html = '';
-    if (db.sesionVencida) {
+    if (db.debeCambiarContrasena() && !db.sesionVencida) {
+      html = `<span>Estás usando una contraseña temporal. Cámbiala por una que solo tú conozcas.</span>
+        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.pedirCambioDeContrasena()">Cambiar ahora</button>`;
+    } else if (db.sesionVencida) {
       html = `<span>Tu sesión venció. Los cambios se guardan en este dispositivo, pero no se suben hasta que vuelvas a entrar.</span>
         <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.mostrarFormularioAcceso('Tu sesión venció. Vuelve a entrar para sincronizar.')">Entrar de nuevo</button>`;
     } else if (rechazos) {
@@ -2471,6 +2491,10 @@ window.RanchoApp = {
                 onchange="RanchoApp.cambiarRolMiembro('${esc(m.id)}', this.value, this)" ${m.id === yo ? 'disabled' : ''}>
                 ${opcion('admin', 'Administrador', m.rol)}${opcion('editor', 'Editor', m.rol)}${opcion('lector', 'Solo lectura', m.rol)}
               </select>
+              <button type="button" class="btn-icon" onclick="RanchoApp.restablecerContrasenaMiembro('${esc(m.id)}')"
+                ${m.id === yo ? 'disabled' : ''} aria-label="Restablecer la contraseña de ${esc(m.nombre)}" title="Restablecer contraseña">
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="7" cy="12" r="3.2" /><path d="M9.3 9.7L16 3M13.5 5.5l2 2M11.8 7.2l1.5 1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
               <button type="button" class="btn-icon btn-icon-danger" onclick="RanchoApp.quitarMiembro('${esc(m.id)}')"
                 ${m.id === yo ? 'disabled' : ''} aria-label="Quitar acceso a ${esc(m.nombre)}" title="Quitar acceso">
                 <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6" stroke-linecap="round" stroke-linejoin="round" /></svg>
@@ -2492,7 +2516,7 @@ window.RanchoApp = {
           </div>
           <div class="form-group">
             <label class="form-label" for="nuevoMiembroPassword">Contraseña inicial (mínimo 8)</label>
-            <input type="text" id="nuevoMiembroPassword" class="form-input input-mono" autocomplete="off" minlength="8" />
+            <input type="text" id="nuevoMiembroPassword" class="form-input input-mono" autocomplete="off" minlength="8" value="${this.generarContrasenaTemporal()}" />
           </div>
           <div class="form-group">
             <label class="form-label" for="nuevoMiembroRol">Permiso</label>
@@ -2504,7 +2528,7 @@ window.RanchoApp = {
           </div>
         </div>
         <button type="button" id="btnAgregarMiembro" class="btn btn-primary btn-sm" onclick="RanchoApp.agregarMiembro()">Dar acceso</button>
-        <p class="form-help-text">Comparte el correo y la contraseña inicial con la persona; ella puede cambiar la contraseña al entrar. Si ya tiene cuenta, la contraseña no se cambia.</p>
+        <p class="form-help-text">Comparte el correo y la contraseña inicial con la persona por un medio privado; al entrar se le pedirá cambiarla. Si ya tiene cuenta, su contraseña no se cambia.</p>
       </details>`;
   },
 
@@ -2539,6 +2563,36 @@ window.RanchoApp = {
       this.mostrarToast(err.message, 'error');
       this.renderMiembrosConfig();
     }
+  },
+
+  async restablecerContrasenaMiembro(usuarioId) {
+    const m = (this._miembros || []).find((x) => x.id === usuarioId);
+    const nombre = m ? m.nombre : 'esta persona';
+    const sugerida = this.generarContrasenaTemporal();
+    const nueva = prompt(
+      `Nueva contraseña temporal para ${nombre} (mínimo 8 caracteres).\n` +
+        `Se cerrarán sus sesiones abiertas y deberá cambiarla al entrar.`,
+      sugerida
+    );
+    if (nueva === null) return;
+    if (nueva.length < 8) {
+      this.mostrarToast('La contraseña temporal debe tener al menos 8 caracteres.', 'error');
+      return;
+    }
+    try {
+      await window.RanchoDB.restablecerContrasenaMiembro(usuarioId, nueva);
+      alert(`Contraseña temporal de ${nombre}:\n\n${nueva}\n\nCompártela en persona o por un medio privado.`);
+    } catch (err) {
+      this.mostrarToast(err.message, 'error');
+    }
+  },
+
+  /** Contraseña temporal aleatoria y fácil de dictar (sin 0/O ni 1/l). */
+  generarContrasenaTemporal() {
+    const letras = 'abcdefghjkmnpqrstuvwxyz23456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(12));
+    const s = [...bytes].map((b) => letras[b % letras.length]).join('');
+    return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
   },
 
   async quitarMiembro(usuarioId) {

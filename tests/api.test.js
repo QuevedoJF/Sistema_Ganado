@@ -15,9 +15,11 @@ const { crearServidor } = await import('../scripts/servidor-local.js');
 
 let servidor;
 let base;
+let pg;
 
 before(async () => {
-  servidor = await crearServidor({ adaptador: adaptadorPglite(new PGlite()) });
+  pg = new PGlite();
+  servidor = await crearServidor({ adaptador: adaptadorPglite(pg) });
   await new Promise((r) => servidor.listen(0, r));
   base = `http://127.0.0.1:${servidor.address().port}`;
 });
@@ -271,6 +273,76 @@ test('una cuenta sin acceso no ve otro rancho', async () => {
   assert.equal(r.status, 403);
 });
 
+test('un atacante desde otra IP no puede dejar fuera al dueño', async () => {
+  const atacante = cliente();
+  for (let i = 0; i < 9; i++) {
+    await atacante('POST', '/api/auth/entrar', { email: 'admin@rancho.mx', password: 'mala' }, { 'X-Real-IP': '9.9.9.9' });
+  }
+  const bloqueado = await atacante('POST', '/api/auth/entrar', { email: 'admin@rancho.mx', password: 'segura12345' }, { 'X-Real-IP': '9.9.9.9' });
+  assert.equal(bloqueado.status, 429, 'el atacante queda bloqueado');
+  const dueno = cliente();
+  const r = await dueno('POST', '/api/auth/entrar', { email: 'admin@rancho.mx', password: 'segura12345' }, { 'X-Real-IP': '8.8.8.8' });
+  assert.equal(r.status, 200, 'el dueño entra desde su propia IP');
+});
+
+test('contraseña absurdamente larga se rechaza sin procesarla', async () => {
+  const r = await cliente()('POST', '/api/auth/entrar', { email: 'admin@rancho.mx', password: 'x'.repeat(100000) }, { 'X-Real-IP': '7.7.7.7' });
+  assert.equal(r.status, 401);
+});
+
+test('JSON mal formado y direcciones inválidas responden 400, no 500', async () => {
+  const res = await fetch(`${base}/api/auth/entrar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"email": ' });
+  assert.equal(res.status, 400);
+  const r2 = await admin('GET', `/api/ranchos/%E0%A4%A/miembros`);
+  assert.equal(r2.status, 400);
+});
+
+test('el admin restablece la contraseña de un miembro; queda como temporal', async () => {
+  const miembros = (await admin('GET', `/api/ranchos/${rancho}/miembros`)).datos.miembros;
+  const vaquero = miembros.find((m) => m.email === 'vaquero@rancho.mx');
+  const sesionVieja = cliente();
+  await sesionVieja('POST', '/api/auth/entrar', { email: 'vaquero@rancho.mx', password: 'corral12345' }, { 'X-Real-IP': '6.6.6.6' });
+  let r = await admin('POST', `/api/ranchos/${rancho}/miembros/${vaquero.id}/contrasena`, { nueva: 'temporal-2026' });
+  assert.equal(r.status, 200, JSON.stringify(r.datos));
+  r = await sesionVieja('GET', '/api/auth/yo');
+  assert.equal(r.datos.usuario, null, 'sus sesiones abiertas se cierran');
+  const v = cliente();
+  r = await v('POST', '/api/auth/entrar', { email: 'vaquero@rancho.mx', password: 'corral12345' }, { 'X-Real-IP': '6.6.6.7' });
+  assert.equal(r.status, 401, 'la contraseña anterior ya no sirve');
+  r = await v('POST', '/api/auth/entrar', { email: 'vaquero@rancho.mx', password: 'temporal-2026' }, { 'X-Real-IP': '6.6.6.7' });
+  assert.equal(r.status, 200);
+  assert.equal(r.datos.usuario.debeCambiarContrasena, true, 'debe cambiar la contraseña temporal');
+  r = await v('POST', '/api/auth/contrasena', { actual: 'temporal-2026', nueva: 'temporal-2026' });
+  assert.equal(r.status, 400, 'la nueva no puede ser igual a la actual');
+  r = await v('POST', '/api/auth/contrasena', { actual: 'temporal-2026', nueva: 'mi-clave-propia' });
+  assert.equal(r.status, 200);
+  r = await v('GET', '/api/auth/yo');
+  assert.equal(r.datos.usuario.debeCambiarContrasena, false);
+  const yoAdmin = (await admin('GET', '/api/auth/yo')).datos.usuario;
+  r = await admin('POST', `/api/ranchos/${rancho}/miembros/${yoAdmin.id}/contrasena`, { nueva: 'otra-clave-99' });
+  assert.equal(r.status, 400, 'para su propia cuenta debe usar cambiar contraseña');
+});
+
+test('no se puede restablecer la contraseña de alguien que está en un rancho ajeno', async () => {
+  const miembros = (await admin('GET', `/api/ranchos/${rancho}/miembros`)).datos.miembros;
+  const vaquero = miembros.find((m) => m.email === 'vaquero@rancho.mx');
+  // Otro rancho, administrado por otra persona, donde el vaquero también trabaja
+  const otro = await pg.query(`INSERT INTO ranchos (nombre) VALUES ('Rancho vecino') RETURNING id`);
+  await pg.query(`INSERT INTO miembros (rancho_id, usuario_id, rol) VALUES ($1, $2, 'editor')`, [otro.rows[0].id, vaquero.id]);
+  const r = await admin('POST', `/api/ranchos/${rancho}/miembros/${vaquero.id}/contrasena`, { nueva: 'robo-de-cuenta' });
+  assert.equal(r.status, 403);
+  assert.match(r.datos.mensaje, /ranchos que tú no administras/);
+  // Tampoco ve los datos del rancho vecino
+  const r2 = await admin('POST', `/api/ranchos/${otro.rows[0].id}/sync`, { cursor: 0, ops: [] });
+  assert.equal(r2.status, 403);
+});
+
+test('las cuentas creadas por el admin deben cambiar su contraseña inicial', async () => {
+  await admin('POST', `/api/ranchos/${rancho}/miembros`, { email: 'nuevo@rancho.mx', password: 'inicial-123', rol: 'editor' });
+  const r = await cliente()('POST', '/api/auth/entrar', { email: 'nuevo@rancho.mx', password: 'inicial-123' }, { 'X-Real-IP': '5.5.5.5' });
+  assert.equal(r.datos.usuario.debeCambiarContrasena, true);
+});
+
 test('contraseña incorrecta y bloqueo tras 8 intentos', async () => {
   const intruso = cliente();
   let r = await intruso('POST', '/api/auth/entrar', { email: 'admin@rancho.mx', password: 'mala' });
@@ -303,6 +375,7 @@ test('auditoría registra quién cambió qué', async () => {
   const ventaA1 = r.datos.registros.find((x) => x.entidad_id === 'A1' && x.cambios && x.cambios.estatus === 'Vendido');
   assert.ok(ventaA1, 'se registró la venta');
   assert.equal(ventaA1.usuario, 'Dueño');
+  assert.ok(r.datos.registros.some((x) => x.entidad === 'miembro' && x.accion === 'contraseña restablecida'), 'también los cambios de personas');
 });
 
 test('cerrar sesión invalida la cookie', async () => {

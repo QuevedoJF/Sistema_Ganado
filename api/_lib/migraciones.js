@@ -156,6 +156,15 @@ export const MIGRACIONES = [
       );
       CREATE INDEX auditoria_rancho_fecha ON auditoria (rancho_id, fecha DESC);
     `
+  },
+  {
+    version: 2,
+    nombre: 'limpieza de sesiones e intentos; contraseña temporal',
+    sql: `
+      CREATE INDEX intentos_login_fecha ON intentos_login (fecha);
+      CREATE INDEX sesiones_expira ON sesiones (expira);
+      ALTER TABLE usuarios ADD COLUMN debe_cambiar_contrasena boolean NOT NULL DEFAULT false;
+    `
   }
 ];
 

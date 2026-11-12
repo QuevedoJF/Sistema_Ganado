@@ -15,6 +15,7 @@ const SCRYPT_P = 1;
 const LARGO_CLAVE = 64;
 
 const DURACION_SESION_DIAS = 30;
+export const LARGO_MAXIMO_CONTRASENA = 200;
 const COOKIE = 'rancho_sesion';
 
 export async function cifrarContrasena(contrasena) {
@@ -29,6 +30,7 @@ export async function cifrarContrasena(contrasena) {
 }
 
 export async function verificarContrasena(contrasena, guardado) {
+  if (String(contrasena).length > LARGO_MAXIMO_CONTRASENA) return false;
   const partes = String(guardado || '').split('$');
   if (partes.length !== 6 || partes[0] !== 'scrypt') return false;
   const [, n, r, p, salB64, hashB64] = partes;
@@ -45,7 +47,7 @@ export async function verificarContrasena(contrasena, guardado) {
 export function validarContrasenaNueva(contrasena) {
   const c = String(contrasena || '');
   if (c.length < 8) throw new ErrorApi(400, 'CONTRASENA_DEBIL', 'La contraseña debe tener al menos 8 caracteres.');
-  if (c.length > 200) throw new ErrorApi(400, 'CONTRASENA_LARGA', 'La contraseña es demasiado larga.');
+  if (c.length > LARGO_MAXIMO_CONTRASENA) throw new ErrorApi(400, 'CONTRASENA_LARGA', 'La contraseña es demasiado larga.');
 }
 
 export function normalizarEmail(email) {
@@ -61,6 +63,7 @@ const hashToken = (token) => crypto.createHash('sha256').update(token).digest('h
 /** Crea una sesión y devuelve el valor de la cabecera Set-Cookie. */
 export async function crearSesion(db, usuarioId) {
   const token = crypto.randomBytes(32).toString('base64url');
+  await db.query('DELETE FROM sesiones WHERE expira < now()');
   await db.query(
     `INSERT INTO sesiones (token_hash, usuario_id, expira)
      VALUES ($1, $2, now() + make_interval(days => $3))`,
@@ -133,17 +136,25 @@ export async function exigirRol(db, usuarioId, ranchoId, rolesPermitidos = ['adm
   return rows[0].rol;
 }
 
-/** Bloquea fuerza bruta: 8 fallos por correo o 30 por IP en 15 minutos. */
+/**
+ * Bloquea fuerza bruta en 15 minutos:
+ *  - 8 fallos del mismo correo desde la misma IP,
+ *  - 30 fallos desde una IP (cualquier correo),
+ *  - 50 fallos de un correo desde cualquier IP (ataque distribuido).
+ * Así un atacante no puede dejar fuera al dueño con solo fallar 8 veces con su correo.
+ */
 export async function revisarLimiteIntentos(db, email, ip) {
   const { rows } = await db.query(
     `SELECT
-        count(*) FILTER (WHERE email = $1 AND NOT exito)::int AS por_email,
-        count(*) FILTER (WHERE ip = $2 AND NOT exito)::int AS por_ip
+        count(*) FILTER (WHERE email = $1 AND ip = $2)::int AS por_email_ip,
+        count(*) FILTER (WHERE ip = $2)::int AS por_ip,
+        count(*) FILTER (WHERE email = $1)::int AS por_email
        FROM intentos_login
-      WHERE fecha > now() - interval '15 minutes' AND (email = $1 OR ip = $2)`,
+      WHERE fecha > now() - interval '15 minutes' AND NOT exito AND (email = $1 OR ip = $2)`,
     [email, ip]
   );
-  if (rows[0].por_email >= 8 || rows[0].por_ip >= 30) {
+  const r = rows[0];
+  if (r.por_email_ip >= 8 || r.por_ip >= 30 || r.por_email >= 50) {
     throw new ErrorApi(
       429,
       'DEMASIADOS_INTENTOS',
@@ -154,9 +165,7 @@ export async function revisarLimiteIntentos(db, email, ip) {
 
 export async function registrarIntento(db, email, ip, exito) {
   await db.query('INSERT INTO intentos_login (email, ip, exito) VALUES ($1, $2, $3)', [email, ip, exito]);
-  if (exito) {
-    await db.query(`DELETE FROM intentos_login WHERE fecha < now() - interval '1 day'`);
-  }
+  await db.query(`DELETE FROM intentos_login WHERE fecha < now() - interval '1 day'`);
 }
 
 /**
@@ -182,7 +191,9 @@ export function revisarOrigen(req) {
   }
 }
 
+/** IP del cliente. En Vercel, x-real-ip la pone la plataforma (el cliente no puede falsificarla). */
 export function ipDe(req) {
+  const real = String(req.headers['x-real-ip'] || '').trim();
   const reenviada = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return reenviada || (req.socket && req.socket.remoteAddress) || 'desconocida';
+  return (real || reenviada || (req.socket && req.socket.remoteAddress) || 'desconocida').slice(0, 64);
 }

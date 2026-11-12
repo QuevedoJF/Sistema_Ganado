@@ -18,7 +18,8 @@ import {
   revisarLimiteIntentos,
   registrarIntento,
   revisarOrigen,
-  ipDe
+  ipDe,
+  LARGO_MAXIMO_CONTRASENA
 } from './auth.js';
 import { sincronizar } from './sincronizar.js';
 
@@ -35,6 +36,7 @@ const rutas = [
   ['POST', /^\/api\/ranchos\/([^/]+)\/miembros$/, agregarMiembro],
   ['PATCH', /^\/api\/ranchos\/([^/]+)\/miembros\/([^/]+)$/, cambiarRolMiembro],
   ['DELETE', /^\/api\/ranchos\/([^/]+)\/miembros\/([^/]+)$/, quitarMiembro],
+  ['POST', /^\/api\/ranchos\/([^/]+)\/miembros\/([^/]+)\/contrasena$/, restablecerContrasena],
   ['POST', /^\/api\/ranchos\/([^/]+)\/sync$/, sincronizarRancho],
   ['GET', /^\/api\/ranchos\/([^/]+)\/auditoria$/, auditoria]
 ];
@@ -57,7 +59,12 @@ export async function manejar(req, res) {
     revisarOrigen(req);
     const db = obtenerDb();
     await asegurarMigraciones(db);
-    const params = ruta.match(coincidencia[1]).slice(1).map(decodeURIComponent);
+    let params;
+    try {
+      params = ruta.match(coincidencia[1]).slice(1).map(decodeURIComponent);
+    } catch {
+      throw datosInvalidos('La dirección de la petición no es válida.');
+    }
     const cuerpo = req.method === 'GET' ? {} : await leerCuerpo(req);
     const ctx = { req, res, db, params, cuerpo, query: url.searchParams };
     const resultado = await coincidencia[2](ctx);
@@ -80,7 +87,15 @@ function enviar(res, status, datos) {
 }
 
 async function leerCuerpo(req) {
-  if (req.body !== undefined && req.body !== null) {
+  // En Vercel, leer req.body lanza un error si el JSON viene mal formado
+  let yaLeido;
+  try {
+    yaLeido = req.body;
+  } catch {
+    throw datosInvalidos('El cuerpo de la petición no es JSON válido.');
+  }
+  if (yaLeido !== undefined && yaLeido !== null) {
+    req = { body: yaLeido };
     if (typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body;
     return parsear(Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body));
   }
@@ -168,8 +183,12 @@ async function entrar({ db, cuerpo, req, res }) {
   const email = normalizarEmail(cuerpo.email);
   const ip = ipDe(req);
   await revisarLimiteIntentos(db, email, ip);
+  if (String(cuerpo.password || '').length > LARGO_MAXIMO_CONTRASENA) {
+    await registrarIntento(db, email, ip, false);
+    throw new ErrorApi(401, 'CREDENCIALES_INVALIDAS', 'Correo o contraseña incorrectos.');
+  }
   const { rows } = await db.query(
-    'SELECT id, email, nombre, password_hash, activo FROM usuarios WHERE email = $1',
+    'SELECT id, email, nombre, password_hash, activo, debe_cambiar_contrasena FROM usuarios WHERE email = $1',
     [email]
   );
   const u = rows[0];
@@ -183,7 +202,10 @@ async function entrar({ db, cuerpo, req, res }) {
   }
   await registrarIntento(db, email, ip, true);
   res.setHeader('Set-Cookie', await crearSesion(db, u.id));
-  return { usuario: { id: u.id, email: u.email, nombre: u.nombre }, ranchos: await ranchosDe(db, u.id) };
+  return {
+    usuario: { id: u.id, email: u.email, nombre: u.nombre, debeCambiarContrasena: u.debe_cambiar_contrasena },
+    ranchos: await ranchosDe(db, u.id)
+  };
 }
 
 // Hash con los mismos parámetros que uno real: así el tiempo de respuesta no revela si el correo existe
@@ -202,7 +224,11 @@ async function yo({ db, req }) {
   const usuario = await usuarioDeSesion(db, req);
   if (!usuario) return { usuario: null, ranchos: [] };
   const { token, ...publico } = usuario;
-  return { usuario: publico, ranchos: await ranchosDe(db, usuario.id) };
+  const extra = await db.query('SELECT debe_cambiar_contrasena FROM usuarios WHERE id = $1', [usuario.id]);
+  return {
+    usuario: { ...publico, debeCambiarContrasena: !!(extra.rows[0] && extra.rows[0].debe_cambiar_contrasena) },
+    ranchos: await ranchosDe(db, usuario.id)
+  };
 }
 
 async function cambiarContrasena({ db, req, cuerpo, res }) {
@@ -212,7 +238,13 @@ async function cambiarContrasena({ db, req, cuerpo, res }) {
     throw new ErrorApi(400, 'CONTRASENA_INCORRECTA', 'La contraseña actual no es correcta.');
   }
   validarContrasenaNueva(cuerpo.nueva);
-  await db.query('UPDATE usuarios SET password_hash = $2 WHERE id = $1', [usuario.id, await cifrarContrasena(cuerpo.nueva)]);
+  if (String(cuerpo.nueva) === String(cuerpo.actual)) {
+    throw new ErrorApi(400, 'CONTRASENA_REPETIDA', 'La contraseña nueva debe ser distinta de la actual.');
+  }
+  await db.query('UPDATE usuarios SET password_hash = $2, debe_cambiar_contrasena = false WHERE id = $1', [
+    usuario.id,
+    await cifrarContrasena(cuerpo.nueva)
+  ]);
   // Cerrar las demás sesiones (otros dispositivos) y abrir una nueva aquí
   await db.query('DELETE FROM sesiones WHERE usuario_id = $1', [usuario.id]);
   res.setHeader('Set-Cookie', await crearSesion(db, usuario.id));
@@ -248,7 +280,7 @@ async function agregarMiembro(ctx) {
     validarContrasenaNueva(cuerpo.password);
     const nombre = String(cuerpo.nombre || '').trim().slice(0, 80) || email;
     const nuevo = await db.query(
-      'INSERT INTO usuarios (email, nombre, password_hash) VALUES ($1, $2, $3) RETURNING id',
+      'INSERT INTO usuarios (email, nombre, password_hash, debe_cambiar_contrasena) VALUES ($1, $2, $3, true) RETURNING id',
       [email, nombre, await cifrarContrasena(cuerpo.password)]
     );
     usuarioId = nuevo.rows[0].id;
@@ -259,6 +291,7 @@ async function agregarMiembro(ctx) {
     [params[0], usuarioId, rol]
   );
   if (!ins.rows.length) throw new ErrorApi(409, 'YA_ES_MIEMBRO', 'Esa cuenta ya tiene acceso a este rancho.');
+  await auditarMiembro(db, params[0], usuario.id, usuarioId, 'acceso concedido', { email, rol });
   ctx.status = 201;
   return { ok: true, usuarioId, cuentaNueva: !existente.rows.length };
 }
@@ -282,6 +315,7 @@ async function cambiarRolMiembro({ db, req, params, cuerpo }) {
     throw new ErrorApi(409, 'ULTIMO_ADMIN', 'El rancho debe tener al menos un administrador.');
   }
   await db.query('UPDATE miembros SET rol = $3 WHERE rancho_id = $1 AND usuario_id = $2', [ranchoId, usuarioId, cuerpo.rol]);
+  await auditarMiembro(db, ranchoId, usuario.id, usuarioId, 'rol cambiado', { rol: cuerpo.rol });
   return { ok: true };
 }
 
@@ -295,7 +329,52 @@ async function quitarMiembro({ db, req, params }) {
     throw new ErrorApi(409, 'ULTIMO_ADMIN', 'El rancho debe tener al menos un administrador.');
   }
   await db.query('DELETE FROM miembros WHERE rancho_id = $1 AND usuario_id = $2', [ranchoId, usuarioId]);
+  // Si ya no pertenece a ningún rancho, cerrar sus sesiones
+  const resto = await db.query('SELECT 1 FROM miembros WHERE usuario_id = $1 LIMIT 1', [usuarioId]);
+  if (!resto.rows.length) await db.query('DELETE FROM sesiones WHERE usuario_id = $1', [usuarioId]);
+  await auditarMiembro(db, ranchoId, usuario.id, usuarioId, 'acceso quitado', null);
   return { ok: true };
+}
+
+/**
+ * El administrador pone una contraseña temporal a un miembro que olvidó la suya.
+ * Solo se permite si TODOS los ranchos de esa persona son administrados por quien la restablece;
+ * así un admin de un rancho no puede tomar la cuenta de alguien en ranchos ajenos.
+ */
+async function restablecerContrasena({ db, req, params, cuerpo }) {
+  const usuario = await exigirUsuario(db, req);
+  const [ranchoId, usuarioId] = params;
+  await exigirRol(db, usuario.id, ranchoId, ['admin']);
+  if (usuarioId === usuario.id) {
+    throw new ErrorApi(400, 'USA_CAMBIAR_CONTRASENA', 'Para tu propia cuenta usa "Cambiar contraseña".');
+  }
+  const miembro = await db.query('SELECT 1 FROM miembros WHERE rancho_id = $1 AND usuario_id = $2', [ranchoId, usuarioId]);
+  if (!miembro.rows.length) throw new ErrorApi(404, 'NO_ENCONTRADO', 'Esa cuenta no es miembro del rancho.');
+  const ajenos = await db.query(
+    `SELECT count(*)::int AS n FROM miembros t
+      WHERE t.usuario_id = $1
+        AND NOT EXISTS (SELECT 1 FROM miembros r WHERE r.usuario_id = $2 AND r.rancho_id = t.rancho_id AND r.rol = 'admin')`,
+    [usuarioId, usuario.id]
+  );
+  if (ajenos.rows[0].n > 0) {
+    throw prohibido('Esta persona también tiene acceso a ranchos que tú no administras; debe recuperar su contraseña con su propio administrador.');
+  }
+  validarContrasenaNueva(cuerpo.nueva);
+  await db.query('UPDATE usuarios SET password_hash = $2, debe_cambiar_contrasena = true WHERE id = $1', [
+    usuarioId,
+    await cifrarContrasena(cuerpo.nueva)
+  ]);
+  await db.query('DELETE FROM sesiones WHERE usuario_id = $1', [usuarioId]);
+  await auditarMiembro(db, ranchoId, usuario.id, usuarioId, 'contraseña restablecida', null);
+  return { ok: true };
+}
+
+async function auditarMiembro(db, ranchoId, autorId, usuarioId, accion, cambios) {
+  await db.query(
+    `INSERT INTO auditoria (rancho_id, usuario_id, entidad, entidad_id, accion, cambios)
+     VALUES ($1, $2, 'miembro', $3, $4, $5)`,
+    [ranchoId, autorId, String(usuarioId), accion, cambios ? JSON.stringify(cambios) : null]
+  );
 }
 
 /* ---------------------------------------------------------------- datos del rancho */

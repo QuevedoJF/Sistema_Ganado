@@ -2,6 +2,15 @@
  * Módulo de Exportación en Tabla para Excel (.xlsx) y PDF Profesional
  */
 
+/**
+ * Evita que Excel interprete un texto como fórmula (=, +, -, @) al abrir el CSV.
+ * Un nombre de comprador como "=HYPERLINK(...)" se guarda como texto.
+ */
+function protegerCelda(valor) {
+  const s = String(valor == null ? '' : valor);
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
 window.RanchoExports = {
   formatearMadreTexto(animal) {
     if (!animal.madreNumero && !animal.madreArete) return 'Sin registro';
@@ -145,7 +154,7 @@ window.RanchoExports = {
     const csvRows = [
       headers.join(','),
       ...filas.map((row) =>
-        headers.map((h) => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(',')
+        headers.map((h) => `"${protegerCelda(row[h]).replace(/"/g, '""')}"`).join(',')
       )
     ];
     const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });

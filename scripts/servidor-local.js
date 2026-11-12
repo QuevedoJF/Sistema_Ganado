@@ -23,15 +23,27 @@ const TIPOS = {
   '.png': 'image/png',
   '.ico': 'image/x-icon'
 };
-const PROHIBIDOS = /^\/(api|scripts|tests|node_modules|\.datos-locales|\.git)(\/|$)/;
+const PROHIBIDOS = /^\/(api|scripts|tests|node_modules|\.datos-locales|\.git|\.codex|\.gemini)(\/|$)|^\/(package(-lock)?\.json|vercel\.json|\.vercelignore|\.gitignore)$/;
+
+// Mismas cabeceras de seguridad que en Vercel (vercel.json)
+const CABECERAS = JSON.parse(await fs.readFile(path.join(raiz, 'vercel.json'), 'utf8')).headers
+  .filter((h) => h.source === '/(.*)')
+  .flatMap((h) => h.headers);
 
 export async function crearServidor({ adaptador } = {}) {
   if (adaptador) usarBase(adaptador);
   return http.createServer(async (req, res) => {
+    for (const { key, value } of CABECERAS) res.setHeader(key, value);
     const url = new URL(req.url, 'http://local');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return manejar(req, res);
 
-    let ruta = decodeURIComponent(url.pathname);
+    let ruta;
+    try {
+      ruta = decodeURIComponent(url.pathname);
+    } catch {
+      res.statusCode = 400;
+      return res.end('Dirección inválida');
+    }
     if (ruta === '/') ruta = '/index.html';
     if (PROHIBIDOS.test(ruta) || ruta.includes('..')) {
       res.statusCode = 404;

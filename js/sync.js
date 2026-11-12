@@ -16,7 +16,7 @@
   ];
   const CAMPOS_EVENTO = ['animalId', 'fecha', 'tipo', 'producto', 'dosis', 'pesoKg', 'proximaFecha', 'notas'];
   const CAMPOS_CONFIG = ['nombreRancho', 'edadDesteteMeses', 'fierros'];
-  const LOTE_MAXIMO = 200;
+  const LOTE_MAXIMO = 100;
 
   /** Valor comparable: '', null y undefined son iguales; 465 y "465" también. */
   function comparable(v) {

@@ -214,8 +214,17 @@ window.RanchoDB = {
     this.activarModoDemo();
   },
 
-  cambiarContrasena(actual, nueva) {
-    return this._api('POST', '/api/auth/contrasena', { actual, nueva });
+  async cambiarContrasena(actual, nueva) {
+    const r = await this._api('POST', '/api/auth/contrasena', { actual, nueva });
+    if (this.sesion && this.sesion.usuario) {
+      this.sesion.usuario.debeCambiarContrasena = false;
+      localStorage.setItem(STORAGE_KEY_SESION, JSON.stringify(this.sesion));
+    }
+    return r;
+  },
+
+  debeCambiarContrasena() {
+    return !!(this.sesion && this.sesion.usuario && this.sesion.usuario.debeCambiarContrasena);
   },
 
   listarMiembros() {
@@ -226,6 +235,9 @@ window.RanchoDB = {
   },
   cambiarRolMiembro(usuarioId, rol) {
     return this._api('PATCH', `/api/ranchos/${this.ranchoActual.id}/miembros/${encodeURIComponent(usuarioId)}`, { rol });
+  },
+  restablecerContrasenaMiembro(usuarioId, nueva) {
+    return this._api('POST', `/api/ranchos/${this.ranchoActual.id}/miembros/${encodeURIComponent(usuarioId)}/contrasena`, { nueva });
   },
   quitarMiembro(usuarioId) {
     return this._api('DELETE', `/api/ranchos/${this.ranchoActual.id}/miembros/${encodeURIComponent(usuarioId)}`, {});

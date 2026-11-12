@@ -16,11 +16,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=8" />
+  <link rel="stylesheet" href="./css/styles.css?v=9" />
   <!-- Librerías para exportar Tablas en Excel (.xlsx) y PDF -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <!-- Con "integrity": si el CDN entregara un archivo alterado, el navegador no lo ejecuta -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js" integrity="sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
 
@@ -746,11 +747,11 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- SCRIPTS DEL SISTEMA -->
-  <script src="./js/validations.js?v=8"></script>
-  <script src="./js/almacen.js?v=8"></script>
-  <script src="./js/sync.js?v=8"></script>
-  <script src="./js/db.js?v=8"></script>
-  <script src="./js/exports.js?v=8"></script>
-  <script src="./js/app.js?v=8"></script>
+  <script src="./js/validations.js?v=9"></script>
+  <script src="./js/almacen.js?v=9"></script>
+  <script src="./js/sync.js?v=9"></script>
+  <script src="./js/db.js?v=9"></script>
+  <script src="./js/exports.js?v=9"></script>
+  <script src="./js/app.js?v=9"></script>
 </body>
 </html>
