@@ -43,7 +43,10 @@ export const esquemaAnimal = z.object({
   origen: texto(60),
   pesoActual: numero(5000),
   madreId: z.preprocess(vacioANull, idSeguro.nullable()),
-  madreFierro: texto(3),
+  madreFierro: z.preprocess(
+    (v) => (v == null || String(v).trim() === '' ? null : String(v).trim().toUpperCase()),
+    z.string().regex(/^[A-Z0-9Ñ]{1,3}$/, 'Código de fierro de la madre inválido').nullable()
+  ),
   madreNumero: texto(20),
   madreArete: texto(40),
   estatus: z.enum(['Activo', 'Vendido', 'Muerto']),

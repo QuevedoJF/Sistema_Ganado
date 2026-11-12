@@ -408,6 +408,8 @@ window.RanchoDB = {
         });
         limpio.id = safeId(a.id) || 'ANM-' + Date.now() + '-' + Math.floor(Math.random() * 1e6);
         limpio.madreId = a.madreId ? safeId(a.madreId) : '';
+        limpio.fierro = this.normalizarCodigoFierro(a.fierro);
+        limpio.madreFierro = a.madreFierro ? this.normalizarCodigoFierro(a.madreFierro) : '';
         if (!Array.isArray(limpio.aretesAnteriores)) limpio.aretesAnteriores = [];
         if (!limpio.estatus) limpio.estatus = 'Activo';
         return limpio;

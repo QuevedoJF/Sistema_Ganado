@@ -5,18 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Sistema de Control Ganadero — Fierros F y H</title>
   <meta name="theme-color" content="#1c241e" />
-  <script>
-    if (location.protocol === 'http:' || location.protocol === 'https:') {
-      const link = document.createElement('link');
-      link.rel = 'manifest';
-      link.href = './manifest.json';
-      document.head.appendChild(link);
-    }
-  </script>
+  <link rel="manifest" href="./manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=9" />
+  <link rel="stylesheet" href="./css/styles.css?v=10" />
   <!-- Librerías para exportar Tablas en Excel (.xlsx) y PDF -->
   <!-- Con "integrity": si el CDN entregara un archivo alterado, el navegador no lo ejecuta -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -28,7 +21,7 @@
   <!-- BARRA SUPERIOR PARA CELULAR Y TABLET -->
   <header class="mobile-topbar mobile-only">
     <div class="mobile-topbar-row">
-      <button type="button" class="btn-menu-drawer" onclick="RanchoApp.toggleSidebar(true)" aria-label="Abrir menú">
+      <button type="button" class="btn-menu-drawer" data-accion="toggleSidebar" data-args='[true]' aria-label="Abrir menú">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/>
         </svg>
@@ -38,13 +31,13 @@
         <span class="mobile-brand-title" id="mobileRanchoNombre">Rancho Ganadero</span>
         <span class="mobile-brand-status"><span id="mobileSyncDot" class="sync-dot demo"></span><span id="mobileSessionStatus">Vista Portafolio</span></span>
       </div>
-      <button type="button" class="btn-topbar-icon" onclick="RanchoApp.abrirBuscador()" aria-label="Buscar en el historial">
+      <button type="button" class="btn-topbar-icon" data-accion="abrirBuscador" aria-label="Buscar en el historial">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
           <circle cx="8.5" cy="8.5" r="5.5" />
           <path d="M13 13l4 4" stroke-linecap="round" />
         </svg>
       </button>
-      <button type="button" class="btn-topbar-icon" onclick="RanchoApp.abrirModalConfiguracion()" aria-label="Rancho, dueños y cuenta">
+      <button type="button" class="btn-topbar-icon" data-accion="abrirModalConfiguracion" aria-label="Rancho, dueños y cuenta">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
           <circle cx="7.5" cy="7" r="2.75" />
           <path d="M2.5 16c.6-2.6 2.6-4 5-4s4.4 1.4 5 4" stroke-linecap="round" />
@@ -59,7 +52,7 @@
   </header>
 
   <!-- TELÓN DE FONDO PARA EL MENÚ LATERAL EN MÓVIL -->
-  <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="RanchoApp.toggleSidebar(false)"></div>
+  <div id="sidebarBackdrop" class="sidebar-backdrop" data-accion="toggleSidebar" data-args='[false]'></div>
 
   <div class="app-shell">
     <!-- BARRA LATERAL (DRAWER EN CELULAR / FIJA EN LAPTOP) -->
@@ -67,7 +60,7 @@
       <div class="sidebar-top-row mobile-only">
         <span class="sidebar-drawer-title">Menú de gestión</span>
         <div class="sidebar-top-row-actions">
-          <button type="button" class="btn-close-sidebar" onclick="RanchoApp.toggleSidebar(false)" aria-label="Cerrar menú">
+          <button type="button" class="btn-close-sidebar" data-accion="toggleSidebar" data-args='[false]' aria-label="Cerrar menú">
             <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
               <path d="M5 5l10 10M15 5L5 15" stroke-linecap="round" />
             </svg>
@@ -93,7 +86,7 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Módulos de gestión</div>
         <nav class="sidebar-nav">
-          <button class="nav-tab active" data-tab="inventario" onclick="RanchoApp.cambiarTab('inventario')">
+          <button class="nav-tab active" data-tab="inventario" data-accion="cambiarTab" data-args='["inventario"]'>
             <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
               <rect x="3" y="4" width="14" height="12" rx="2" />
               <path d="M3 8h14M8 8v8" />
@@ -102,7 +95,7 @@
             <span id="badgeCountInventario" class="tab-badge">0</span>
           </button>
 
-          <button class="nav-tab" data-tab="buscar" onclick="RanchoApp.abrirBuscador()">
+          <button class="nav-tab" data-tab="buscar" data-accion="abrirBuscador">
             <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
               <circle cx="8.5" cy="8.5" r="5.5" />
               <path d="M13 13l4 4" stroke-linecap="round" />
@@ -111,7 +104,7 @@
             <kbd class="nav-kbd" aria-hidden="true">/</kbd>
           </button>
 
-          <button class="nav-tab" data-tab="genealogia" onclick="RanchoApp.cambiarTab('genealogia')">
+          <button class="nav-tab" data-tab="genealogia" data-accion="cambiarTab" data-args='["genealogia"]'>
             <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
               <circle cx="6" cy="6" r="2.5" />
               <circle cx="14" cy="14" r="2.5" />
@@ -121,7 +114,7 @@
             <span id="badgeCountGenealogia" class="tab-badge">0</span>
           </button>
 
-          <button class="nav-tab" data-tab="sanidad" onclick="RanchoApp.cambiarTab('sanidad')">
+          <button class="nav-tab" data-tab="sanidad" data-accion="cambiarTab" data-args='["sanidad"]'>
             <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
               <path d="M13.5 3.5l3 3M15 5l-8.5 8.5-3 .5.5-3L12.5 2.5M9.5 6.5l1.5 1.5M7.5 8.5L9 10M3.5 16.5l2-2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
@@ -129,7 +122,7 @@
             <span id="badgeCountSanidad" class="tab-badge">0</span>
           </button>
 
-          <button class="nav-tab" data-tab="bajas" onclick="RanchoApp.cambiarTab('bajas')">
+          <button class="nav-tab" data-tab="bajas" data-accion="cambiarTab" data-args='["bajas"]'>
             <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
               <path d="M4 10h11M11 6l4 4-4 4" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
@@ -141,7 +134,7 @@
 
       <!-- PIE DE BARRA LATERAL: ESTADO DE SINCRONIZACIÓN, MODO PORTAFOLIO Y CONFIGURACIÓN -->
       <div class="sidebar-footer">
-        <button id="btnSidebarConfig" class="btn-sidebar-config" onclick="RanchoApp.abrirModalConfiguracion()">
+        <button id="btnSidebarConfig" class="btn-sidebar-config" data-accion="abrirModalConfiguracion">
           <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
             <circle cx="10" cy="10" r="3" />
             <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
@@ -150,11 +143,11 @@
         </button>
 
         <div id="sessionModeBanner" class="session-mode-box mode-demo">
-          <div class="session-mode-header" onclick="if(window.RanchoDB.sessionMode === 'REAL') RanchoApp.abrirModalConfiguracion()" style="cursor: pointer;" title="Ver estado de la sincronización">
+          <button type="button" class="session-mode-header" data-accion="abrirConfigSiPrivado" title="Ver estado de la sincronización">
             <span id="syncStatusDot" class="sync-dot"></span>
             <span id="syncStatusText" class="sync-text">Vista Portafolio (Demo)</span>
-          </div>
-          <button id="btnToggleSessionMode" type="button" class="btn-session-switch" onclick="RanchoApp.accionBotonSesion()">
+          </button>
+          <button id="btnToggleSessionMode" type="button" class="btn-session-switch" data-accion="accionBotonSesion">
             Entrar al rancho privado
           </button>
         </div>
@@ -172,13 +165,13 @@
 
         <div class="workspace-header-actions">
           <div class="export-group">
-            <button class="btn btn-outline btn-sm" onclick="RanchoApp.descargarTablaActualExcel('General')">
+            <button class="btn btn-outline btn-sm" data-accion="descargarTablaActualExcel" data-args='["General"]'>
               <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
                 <path d="M10 3v10m0 0l-3.5-3.5M10 13l3.5-3.5M4 16h12" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
               <span>Excel (.xlsx)</span>
             </button>
-            <button class="btn btn-outline btn-sm" onclick="RanchoApp.descargarTablaActualPDF('Padrón General de Ganado')">
+            <button class="btn btn-outline btn-sm" data-accion="descargarTablaActualPDF" data-args='["Padrón General de Ganado"]'>
               <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75">
                 <path d="M6 6V3h8v3M6 14H4a1 1 0 01-1-1V8a2 2 0 012-2h10a2 2 0 012 2v5a1 1 0 01-1 1h-2M6 11h8v6H6v-6z" stroke-linejoin="round" />
               </svg>
@@ -186,7 +179,7 @@
             </button>
           </div>
 
-          <button class="btn btn-primary" onclick="RanchoApp.abrirModalAnimal()">
+          <button class="btn btn-primary" data-accion="abrirModalAnimal">
             <span>+ Registrar cabeza</span>
           </button>
         </div>
@@ -199,7 +192,7 @@
       <section id="syncAvisos" class="sync-notice" hidden></section>
 
       <!-- AVISOS DE PENDIENTES EN CORRAL -->
-      <section id="alertsPanel" class="alerts-bar" style="display:none;"></section>
+      <section id="alertsPanel" class="u-oculto alerts-bar"></section>
 
       <!-- CONTENEDOR DE LA TABLA ACTIVA -->
       <main id="mainViewContainer" class="ledger-section"></main>
@@ -207,7 +200,7 @@
 
     <!-- BARRA DE NAVEGACIÓN INFERIOR PARA CELULAR (SOLO MÓVIL) -->
     <nav class="mobile-bottom-bar mobile-only" aria-label="Navegación móvil">
-      <button class="m-bottom-tab active" data-tab="inventario" onclick="RanchoApp.cambiarTab('inventario')">
+      <button class="m-bottom-tab active" data-tab="inventario" data-accion="cambiarTab" data-args='["inventario"]'>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
           <rect x="3" y="4" width="14" height="12" rx="2" />
           <path d="M3 8h14M8 8v8" />
@@ -215,7 +208,7 @@
         <span>Padrón</span>
       </button>
 
-      <button class="m-bottom-tab" data-tab="genealogia" onclick="RanchoApp.cambiarTab('genealogia')">
+      <button class="m-bottom-tab" data-tab="genealogia" data-accion="cambiarTab" data-args='["genealogia"]'>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
           <circle cx="6" cy="6" r="2.5" />
           <circle cx="14" cy="14" r="2.5" />
@@ -224,21 +217,21 @@
         <span>Madres</span>
       </button>
 
-      <button class="m-bottom-tab" data-tab="sanidad" onclick="RanchoApp.cambiarTab('sanidad')">
+      <button class="m-bottom-tab" data-tab="sanidad" data-accion="cambiarTab" data-args='["sanidad"]'>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
           <path d="M13.5 3.5l3 3M15 5l-8.5 8.5-3 .5.5-3L12.5 2.5M9.5 6.5l1.5 1.5M7.5 8.5L9 10M3.5 16.5l2-2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         <span>Sanidad</span>
       </button>
 
-      <button class="m-bottom-tab" data-tab="bajas" onclick="RanchoApp.cambiarTab('bajas')">
+      <button class="m-bottom-tab" data-tab="bajas" data-accion="cambiarTab" data-args='["bajas"]'>
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M4 10h11M11 6l4 4-4 4" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         <span>Bajas</span>
       </button>
 
-      <button class="m-bottom-tab" onclick="RanchoApp.toggleSidebar(true)" aria-label="Abrir menú de gestión">
+      <button class="m-bottom-tab" data-accion="toggleSidebar" data-args='[true]' aria-label="Abrir menú de gestión">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/>
         </svg>
@@ -254,10 +247,10 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="modalAnimalTitulo">Registrar cabeza de ganado</h2>
-        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalAnimal')" aria-label="Cerrar">&times;</button>
+        <button class="modal-close" data-accion="cerrarModal" data-args='["modalAnimal"]' aria-label="Cerrar">&times;</button>
       </div>
 
-      <form onsubmit="RanchoApp.guardarFormularioAnimal(event)">
+      <form data-al-enviar="guardarFormularioAnimal" data-args='["$evento"]'>
         <div class="modal-body">
           <!-- Bloque 1: Propiedad y Sexo -->
           <div class="fieldset-card">
@@ -271,8 +264,8 @@
               <div class="form-group full-width">
                 <span class="form-label" id="labelSexoModal">Sexo *</span>
                 <div class="visual-selector-group" role="radiogroup" aria-labelledby="labelSexoModal">
-                  <button type="button" role="radio" id="optSexoHembra" class="visual-radio-option" onclick="RanchoApp.seleccionarSexoModal('Hembra')">Hembra</button>
-                  <button type="button" role="radio" id="optSexoMacho" class="visual-radio-option" onclick="RanchoApp.seleccionarSexoModal('Macho')">Macho</button>
+                  <button type="button" role="radio" id="optSexoHembra" class="visual-radio-option" data-accion="seleccionarSexoModal" data-args='["Hembra"]'>Hembra</button>
+                  <button type="button" role="radio" id="optSexoMacho" class="visual-radio-option" data-accion="seleccionarSexoModal" data-args='["Macho"]'>Macho</button>
                 </div>
               </div>
             </div>
@@ -285,7 +278,7 @@
               <div class="form-group">
                 <div class="form-label-row">
                   <label class="form-label" for="fieldNumero">Número en el fierro *</label>
-                  <button type="button" class="btn-link-action" onclick="RanchoApp.usarNumeroSugerido()">
+                  <button type="button" class="btn-link-action" data-accion="usarNumeroSugerido">
                     Sugerir disponible
                   </button>
                 </div>
@@ -295,7 +288,7 @@
                   class="form-input input-mono"
                   placeholder="Ej. 15"
                   required
-                  oninput="RanchoApp.validarFormularioEnVivo()"
+                  data-al-escribir="validarFormularioEnVivo"
                 />
                 <div id="msgValidacionNumero" class="validation-msg"></div>
               </div>
@@ -309,7 +302,7 @@
                   id="fieldArete"
                   class="form-input input-mono"
                   placeholder="Ej. MX-260015 (vacío si está pendiente)"
-                  oninput="RanchoApp.alEscribirArete()"
+                  data-al-escribir="alEscribirArete"
                 />
                 <div id="msgValidacionArete" class="validation-msg"></div>
               </div>
@@ -378,7 +371,7 @@
             <div class="form-grid">
               <div class="form-group full-width">
                 <label class="form-label" for="fieldMadreSelect">Seleccionar vaca madre registrada</label>
-                <select id="fieldMadreSelect" class="form-select" onchange="RanchoApp.alCambiarSelectMadre(this.value)"></select>
+                <select id="fieldMadreSelect" class="form-select" data-al-cambiar="alCambiarSelectMadre" data-args='["$valor"]'></select>
               </div>
 
               <div class="form-group">
@@ -405,7 +398,7 @@
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAnimal')">Cancelar</button>
+          <button type="button" class="btn btn-outline" data-accion="cerrarModal" data-args='["modalAnimal"]'>Cancelar</button>
           <button type="submit" class="btn btn-primary">Guardar registro</button>
         </div>
       </form>
@@ -416,13 +409,13 @@
        MODAL 2: DAR DE BAJA POR VENTA O POR MUERTE
        ======================================================================= -->
   <div id="modalBaja" class="modal-backdrop">
-    <div class="modal-content" style="max-width:560px;">
+    <div class="modal-560 modal-content">
       <div class="modal-header">
         <h2>Registrar salida (Venta o baja por muerte)</h2>
-        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalBaja')" aria-label="Cerrar">&times;</button>
+        <button class="modal-close" data-accion="cerrarModal" data-args='["modalBaja"]' aria-label="Cerrar">&times;</button>
       </div>
 
-      <form onsubmit="RanchoApp.confirmarBajaAnimal(event)">
+      <form data-al-enviar="confirmarBajaAnimal" data-args='["$evento"]'>
         <div class="modal-body">
           <input type="hidden" id="bajaAnimalId" />
           <div id="bajaAnimalInfo" class="selected-animal-banner"></div>
@@ -431,7 +424,7 @@
             <div class="form-grid">
               <div class="form-group">
                 <label class="form-label" for="bajaTipo">Tipo de baja *</label>
-                <select id="bajaTipo" class="form-select" onchange="RanchoApp.toggleCamposVentaBaja(this.value)" required>
+                <select id="bajaTipo" class="form-select" data-al-cambiar="toggleCamposVentaBaja" data-args='["$valor"]' required>
                   <option value="Vendido">Salida por venta</option>
                   <option value="Muerto">Baja por muerte</option>
                 </select>
@@ -481,7 +474,7 @@
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalBaja')">Cancelar</button>
+          <button type="button" class="btn btn-outline" data-accion="cerrarModal" data-args='["modalBaja"]'>Cancelar</button>
           <button type="submit" class="btn btn-primary">Confirmar baja</button>
         </div>
       </form>
@@ -495,11 +488,11 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>Expediente individual del animal</h2>
-        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalFicha')" aria-label="Cerrar">&times;</button>
+        <button class="modal-close" data-accion="cerrarModal" data-args='["modalFicha"]' aria-label="Cerrar">&times;</button>
       </div>
       <div id="fichaAnimalBody" class="modal-body"></div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalFicha')">Cerrar</button>
+        <button type="button" class="btn btn-outline" data-accion="cerrarModal" data-args='["modalFicha"]'>Cerrar</button>
       </div>
     </div>
   </div>
@@ -508,13 +501,13 @@
        MODAL 4: REGISTRO DE VACUNAS, DESPARASITACIÓN, PESAJES Y DESTETES
        ======================================================================= -->
   <div id="modalSanidad" class="modal-backdrop">
-    <div class="modal-content" style="max-width:600px;">
+    <div class="modal-600 modal-content">
       <div class="modal-header">
         <h2>Registrar manejo sanitario o pesaje</h2>
-        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalSanidad')" aria-label="Cerrar">&times;</button>
+        <button class="modal-close" data-accion="cerrarModal" data-args='["modalSanidad"]' aria-label="Cerrar">&times;</button>
       </div>
 
-      <form onsubmit="RanchoApp.guardarEventoSanidad(event)">
+      <form data-al-enviar="guardarEventoSanidad" data-args='["$evento"]'>
         <div class="modal-body">
           <div class="fieldset-card">
             <div class="form-grid">
@@ -569,7 +562,7 @@
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalSanidad')">Cancelar</button>
+          <button type="button" class="btn btn-outline" data-accion="cerrarModal" data-args='["modalSanidad"]'>Cancelar</button>
           <button type="submit" class="btn btn-primary">Guardar manejo</button>
         </div>
       </form>
@@ -583,10 +576,10 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2>Rancho, dueños y cuenta</h2>
-        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalConfig')" aria-label="Cerrar">&times;</button>
+        <button class="modal-close" data-accion="cerrarModal" data-args='["modalConfig"]' aria-label="Cerrar">&times;</button>
       </div>
 
-      <form onsubmit="RanchoApp.guardarConfiguracion(event)">
+      <form data-al-enviar="guardarConfiguracion" data-args='["$evento"]'>
         <div class="modal-body">
           <p id="cfgAvisoSoloAdmin" class="config-note" hidden>
             Solo un administrador del rancho puede cambiar el nombre, los dueños y los fierros.
@@ -610,7 +603,7 @@
           <div class="fieldset-card">
             <div class="fieldset-header fieldset-header-row">
               <span>Dueños y fierros en el terreno</span>
-              <button type="button" id="btnAgregarDueno" class="btn btn-outline btn-sm" onclick="RanchoApp.agregarFilaFierro()">
+              <button type="button" id="btnAgregarDueno" class="btn btn-outline btn-sm" data-accion="agregarFilaFierro">
                 <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke-linecap="round" /></svg>
                 Agregar dueño
               </button>
@@ -640,16 +633,16 @@
             <div class="fieldset-header">Copia de seguridad y mantenimiento</div>
             <div id="cfgDatosAntiguos"></div>
             <div class="backup-actions-row">
-              <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.descargarRespaldoJSON()">
+              <button type="button" class="btn btn-outline btn-sm" data-accion="descargarRespaldoJSON">
                 Descargar respaldo (.json)
               </button>
 
-              <label class="btn btn-outline btn-sm" style="cursor:pointer;">
+              <label class="u-puntero btn btn-outline btn-sm">
                 Restaurar respaldo
-                <input type="file" accept=".json" style="display:none;" onchange="RanchoApp.importarRespaldoJSON(this)" />
+                <input class="u-oculto" type="file" accept=".json" data-al-cambiar="importarRespaldoJSON" data-args='["$el"]' />
               </label>
 
-              <button type="button" class="btn btn-danger-soft btn-sm" onclick="RanchoApp.vaciarDatosDeEjemplo()">
+              <button type="button" class="btn btn-danger-soft btn-sm" data-accion="vaciarDatosDeEjemplo">
                 Vaciar todos los registros
               </button>
             </div>
@@ -657,7 +650,7 @@
         </div>
 
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalConfig')">Cancelar</button>
+          <button type="button" class="btn btn-outline" data-accion="cerrarModal" data-args='["modalConfig"]'>Cancelar</button>
           <button type="submit" id="btnGuardarConfig" class="btn btn-primary">Guardar cambios</button>
         </div>
       </form>
@@ -668,14 +661,14 @@
        MODAL 6: INICIAR SESIÓN / CONFIGURACIÓN INICIAL DEL SERVIDOR
        ======================================================================= -->
   <div id="modalAccesoPrivado" class="modal-backdrop">
-    <div class="modal-content" style="max-width:460px;">
+    <div class="modal-460 modal-content">
       <div class="modal-header">
         <h2 id="accesoTitulo">Entrar al rancho privado</h2>
-        <button class="modal-close" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')" aria-label="Cerrar">&times;</button>
+        <button class="modal-close" data-accion="cerrarModal" data-args='["modalAccesoPrivado"]' aria-label="Cerrar">&times;</button>
       </div>
 
       <!-- Iniciar sesión -->
-      <form id="formEntrar" onsubmit="RanchoApp.confirmarAccesoPrivado(event)">
+      <form id="formEntrar" data-al-enviar="confirmarAccesoPrivado" data-args='["$evento"]'>
         <div class="modal-body">
           <div class="fieldset-card">
             <p class="form-help-text form-help-top">
@@ -695,13 +688,13 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')">Seguir en el portafolio</button>
+          <button type="button" class="btn btn-outline" data-accion="cerrarModal" data-args='["modalAccesoPrivado"]'>Seguir en el portafolio</button>
           <button type="submit" id="btnSubmitAcceso" class="btn btn-primary">Entrar</button>
         </div>
       </form>
 
       <!-- Configuración inicial (solo la primera vez, cuando el servidor no tiene cuentas) -->
-      <form id="formConfigurar" onsubmit="RanchoApp.confirmarConfiguracionInicial(event)" hidden>
+      <form id="formConfigurar" data-al-enviar="confirmarConfiguracionInicial" data-args='["$evento"]' hidden>
         <div class="modal-body">
           <div class="fieldset-card">
             <p class="form-help-text form-help-top">
@@ -736,7 +729,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')">Cancelar</button>
+          <button type="button" class="btn btn-outline" data-accion="cerrarModal" data-args='["modalAccesoPrivado"]'>Cancelar</button>
           <button type="submit" id="btnSubmitConfigurar" class="btn btn-primary">Crear cuenta y entrar</button>
         </div>
       </form>
@@ -747,11 +740,11 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- SCRIPTS DEL SISTEMA -->
-  <script src="./js/validations.js?v=9"></script>
-  <script src="./js/almacen.js?v=9"></script>
-  <script src="./js/sync.js?v=9"></script>
-  <script src="./js/db.js?v=9"></script>
-  <script src="./js/exports.js?v=9"></script>
-  <script src="./js/app.js?v=9"></script>
+  <script src="./js/validations.js?v=10"></script>
+  <script src="./js/almacen.js?v=10"></script>
+  <script src="./js/sync.js?v=10"></script>
+  <script src="./js/db.js?v=10"></script>
+  <script src="./js/exports.js?v=10"></script>
+  <script src="./js/app.js?v=10"></script>
 </body>
 </html>

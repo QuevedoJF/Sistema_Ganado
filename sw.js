@@ -1,15 +1,15 @@
-const CACHE_NAME = 'rancho-fh-cache-v9';
+const CACHE_NAME = 'rancho-fh-cache-v10';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
-  './css/styles.css?v=9',
-  './js/validations.js?v=9',
-  './js/almacen.js?v=9',
-  './js/sync.js?v=9',
-  './js/db.js?v=9',
-  './js/exports.js?v=9',
-  './js/app.js?v=9'
+  './css/styles.css?v=10',
+  './js/validations.js?v=10',
+  './js/almacen.js?v=10',
+  './js/sync.js?v=10',
+  './js/db.js?v=10',
+  './js/exports.js?v=10',
+  './js/app.js?v=10'
 ];
 
 self.addEventListener('install', (event) => {

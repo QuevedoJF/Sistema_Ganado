@@ -822,8 +822,8 @@ body {
 }
 
 /* Columnas cortas de la tabla: no partir fechas, pesos ni el vínculo materno */
-.ganado-table td:nth-child(4),
-.ganado-table td:nth-child(6),
+.tabla-padron td:nth-child(4),
+.tabla-padron td:nth-child(6),
 .ganado-table .madre-pill,
 .ganado-table .arete-code,
 .ganado-table .badge-sexo,
@@ -835,8 +835,8 @@ body {
 @media (max-width: 1365px) {
   .ganado-table th,
   .ganado-table td {
-    padding-left: 0.6rem;
-    padding-right: 0.6rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
   }
 
   .ganado-table .madre-pill small,
@@ -1911,6 +1911,82 @@ body {
 }
 
 /* ==========================================================================
+   UTILIDADES (sustituyen estilos en línea: la Content-Security-Policy no
+   permite atributos style)
+   ========================================================================== */
+.u-oculto { display: none; }
+.u-mono { font-family: var(--font-mono); }
+.u-semibold { font-weight: 600; }
+.u-nowrap { white-space: nowrap; }
+.u-puntero { cursor: pointer; }
+.u-texto-078 { font-size: 0.78rem; }
+.u-texto-080 { font-size: 0.8rem; }
+.u-texto-082 { font-size: 0.82rem; }
+.u-texto-088 { font-size: 0.88rem; }
+.u-texto-115 { font-size: 1.15rem; }
+.u-mt-4 { margin-top: 4px; }
+.u-mt-6 { margin-top: 6px; }
+.u-ml-035 { margin-left: 0.35rem; }
+.u-ml-04 { margin-left: 0.4rem; }
+.u-entre { justify-content: space-between; }
+.u-fin { justify-content: flex-end; }
+.texto-tenue { color: var(--ink-tertiary); }
+.texto-secundario { color: var(--ink-secondary); }
+.texto-fuerte-09 { font-weight: 700; font-size: 0.9rem; }
+.texto-salida { font-size: 0.83rem; line-height: 1.45; }
+.toolbar-nota { font-size: 0.78rem; color: var(--ink-secondary); margin-left: 0.5rem; }
+.celda-vacia { text-align: center; padding: 2.5rem; color: var(--ink-tertiary); }
+.nota-tenue { font-size: 0.76rem; color: var(--ink-tertiary); margin-top: 4px; }
+.nota-aviso { font-size: 0.74rem; color: var(--warning); margin-top: 3px; }
+.detalle-baja { font-size: 0.76rem; color: var(--ink-secondary); margin-top: 4px; line-height: 1.35; }
+.etiqueta-mini { font-size: 0.74rem; font-weight: 600; color: var(--ink-secondary); }
+.mono-070 { font-size: 0.7rem; color: var(--ink-secondary); }
+.mono-078 { font-size: 0.78rem; color: var(--ink-secondary); }
+.badge-mini { font-size: 0.68rem; padding: 1px 5px; }
+.badge-micro { font-size: 0.65rem; padding: 0 3px; }
+.fila-entre { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.fila-gap { display: flex; gap: 0.4rem; }
+.crias-fila { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.cria-chip {
+  margin: 2px 6px 2px 0;
+  padding: 4px 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-line);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cria-chip-sm { margin: 0; padding: 3px 7px; gap: 5px; font-size: 0.75rem; }
+.ficha-lista { list-style: none; display: grid; gap: 0.35rem; }
+.ficha-item {
+  padding: 0.45rem 0.65rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-line);
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+.modal-content.modal-460 { max-width: 460px; }
+.modal-content.modal-560 { max-width: 560px; }
+.modal-content.modal-600 { max-width: 600px; }
+
+/* Botones que antes eran span/div clicables */
+button.madre-pill,
+button.alert-chip {
+  font-family: inherit;
+  text-align: left;
+}
+button.session-mode-header {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* ==========================================================================
    UTILIDADES DE VISIBILIDAD
    ========================================================================== */
 .mobile-only {
@@ -2524,8 +2600,8 @@ body {
   }
 
   .modal-content,
-  .modal-content[style] {
-    max-width: 100% !important; /* anula los max-width en línea pensados para escritorio */
+  .modal-content[class*='modal-'] {
+    max-width: 100% !important; /* en celular las ventanas ocupan todo el ancho */
     max-height: 94dvh;
     border-radius: 18px 18px 0 0;
     border-left: none;
@@ -2745,7 +2821,7 @@ body {
   }
 
   .modal-content,
-  .modal-content[style] {
+  .modal-content[class*='modal-'] {
     max-width: 680px !important;
     max-height: 90dvh;
     border-radius: var(--radius-lg);

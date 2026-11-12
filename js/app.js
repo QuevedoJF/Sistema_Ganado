@@ -42,10 +42,66 @@ window.RanchoApp = {
     window.RanchoDB.subscribe(() => {
       this.renderTodo();
     });
+    this.registrarAcciones();
     this.registrarServiceWorker();
     this.registrarAtajosModales();
     await window.RanchoDB.init();
     this.renderTodo();
+  },
+
+  /**
+   * Manejador central de eventos (sin JavaScript en el HTML, para una Content-Security-Policy estricta).
+   * Los elementos declaran qué hacer con atributos:
+   *   data-accion="metodo"      -> clic
+   *   data-al-escribir="metodo" -> input
+   *   data-al-cambiar="metodo"  -> change
+   *   data-al-enviar="metodo"   -> submit
+   *   data-args='["valor", "$valor", "$el", "$evento"]'  (opcional)
+   * Solo se ejecutan métodos públicos de RanchoApp; nunca se evalúa texto como código.
+   */
+  ACCIONES_PROHIBIDAS: new Set(['init', 'registrarAcciones', 'registrarAtajosModales', 'registrarServiceWorker']),
+
+  ejecutarAccion(el, atributo, evento) {
+    const metodo = el.getAttribute(atributo);
+    if (!metodo || metodo.startsWith('_') || this.ACCIONES_PROHIBIDAS.has(metodo)) return;
+    const fn = this[metodo];
+    if (typeof fn !== 'function') {
+      console.warn('Acción desconocida:', metodo);
+      return;
+    }
+    let args = [];
+    if (el.dataset.args) {
+      try {
+        args = JSON.parse(el.dataset.args);
+      } catch (e) {
+        console.warn('Argumentos inválidos en', el);
+        return;
+      }
+    }
+    if (!Array.isArray(args)) return;
+    const valores = args.map((a) => (a === '$valor' ? el.value : a === '$el' ? el : a === '$evento' ? evento : a));
+    return fn.apply(this, valores);
+  },
+
+  registrarAcciones() {
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-accion]');
+      if (el && !el.disabled) this.ejecutarAccion(el, 'data-accion', e);
+    });
+    document.addEventListener('input', (e) => {
+      const el = e.target.closest('[data-al-escribir]');
+      if (el) this.ejecutarAccion(el, 'data-al-escribir', e);
+    });
+    document.addEventListener('change', (e) => {
+      const el = e.target.closest('[data-al-cambiar]');
+      if (el) this.ejecutarAccion(el, 'data-al-cambiar', e);
+    });
+    document.addEventListener('submit', (e) => {
+      const form = e.target.closest('[data-al-enviar]');
+      if (!form) return;
+      e.preventDefault();
+      this.ejecutarAccion(form, 'data-al-enviar', e);
+    });
   },
 
   registrarAtajosModales() {
@@ -297,7 +353,7 @@ window.RanchoApp = {
     const selector = document.getElementById('fierroSelector');
     if (selector) {
       selector.innerHTML =
-        `<button type="button" class="fierro-option ${todosActivo ? 'is-active' : ''}" aria-pressed="${todosActivo}" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
+        `<button type="button" class="fierro-option ${todosActivo ? 'is-active' : ''}" aria-pressed="${todosActivo}" data-accion="cambiarFiltroFierro" data-args='["TODOS"]'>
           <span class="fierro-option-mark mark-all" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="6" rx="1.2"/><rect x="3" y="11" width="6" height="6" rx="1.2"/><rect x="11" y="11" width="6" height="6" rx="1.2"/></svg>
           </span>
@@ -310,7 +366,7 @@ window.RanchoApp = {
         fierros
           .map((f) => {
             const activo = this.filtroFierro === f.codigo;
-            return `<button type="button" class="fierro-option tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" onclick="RanchoApp.cambiarFiltroFierro('${esc(f.codigo)}')">
+            return `<button type="button" class="fierro-option tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" data-accion="cambiarFiltroFierro" data-args='["${esc(f.codigo)}"]'>
               <span class="fierro-option-mark" aria-hidden="true">${esc(f.codigo)}</span>
               <span class="fierro-option-info">
                 <span class="fierro-option-title">Fierro ${esc(f.codigo)}</span>
@@ -325,13 +381,13 @@ window.RanchoApp = {
     const chips = document.getElementById('mobileFierroChips');
     if (chips) {
       chips.innerHTML =
-        `<button type="button" class="m-chip ${todosActivo ? 'is-active' : ''}" aria-pressed="${todosActivo}" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
+        `<button type="button" class="m-chip ${todosActivo ? 'is-active' : ''}" aria-pressed="${todosActivo}" data-accion="cambiarFiltroFierro" data-args='["TODOS"]'>
           Todos <span class="m-chip-count">${totalActivos}</span>
         </button>` +
         fierros
           .map((f) => {
             const activo = this.filtroFierro === f.codigo;
-            return `<button type="button" class="m-chip tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" onclick="RanchoApp.cambiarFiltroFierro('${esc(f.codigo)}')">
+            return `<button type="button" class="m-chip tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" data-accion="cambiarFiltroFierro" data-args='["${esc(f.codigo)}"]'>
               <span class="m-chip-code">${esc(f.codigo)}</span>
               <span class="m-chip-owner">${esc(f.propietario)}</span>
               <span class="m-chip-count">${activosDe(f.codigo)}</span>
@@ -373,7 +429,7 @@ window.RanchoApp = {
         const m = delFierro.filter((a) => a.sexo === 'Macho').length;
         const activo = this.filtroFierro === f.codigo;
         return `
-          <button type="button" class="summary-cell summary-cell-interactive summary-fierro tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" onclick="RanchoApp.cambiarFiltroFierro('${esc(f.codigo)}')">
+          <button type="button" class="summary-cell summary-cell-interactive summary-fierro tono-${f.tono} ${activo ? 'is-active' : ''}" aria-pressed="${activo}" data-accion="cambiarFiltroFierro" data-args='["${esc(f.codigo)}"]'>
             <span class="summary-label">
               <span class="summary-owner">${esc(f.propietario)}</span>
               ${sello(f.codigo, 'stamp-sm')}
@@ -389,7 +445,7 @@ window.RanchoApp = {
 
     const todos = this.filtroFierro === 'TODOS';
     kpiContainer.innerHTML = `
-      <button type="button" class="summary-cell summary-cell-interactive ${todos ? 'is-active' : ''}" aria-pressed="${todos}" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">
+      <button type="button" class="summary-cell summary-cell-interactive ${todos ? 'is-active' : ''}" aria-pressed="${todos}" data-accion="cambiarFiltroFierro" data-args='["TODOS"]'>
         <span class="summary-label"><span>Padrón activo total</span></span>
         <span class="summary-number">${activos.length} <small>cabezas</small></span>
         <span class="summary-breakdown">
@@ -400,7 +456,7 @@ window.RanchoApp = {
 
       ${celdasFierro}
 
-      <button type="button" class="summary-cell summary-cell-interactive" onclick="RanchoApp.cambiarTab('bajas')">
+      <button type="button" class="summary-cell summary-cell-interactive" data-accion="cambiarTab" data-args='["bajas"]'>
         <span class="summary-label"><span>Salidas registradas</span></span>
         <span class="summary-number">${vendidos + muertos} <small>bajas</small></span>
         <span class="summary-breakdown">
@@ -409,7 +465,7 @@ window.RanchoApp = {
         </span>
       </button>
 
-      <button type="button" class="summary-cell summary-cell-interactive ${sinArete > 0 ? 'summary-alert' : ''}" onclick="RanchoApp.filtrarSinArete()">
+      <button type="button" class="summary-cell summary-cell-interactive ${sinArete > 0 ? 'summary-alert' : ''}" data-accion="filtrarSinArete">
         <span class="summary-label"><span>Aretes por revisar</span></span>
         <span class="summary-number">${sinArete} <small>pendientes</small></span>
         <span class="summary-breakdown"><span>Sin arete o caídos</span></span>
@@ -494,7 +550,7 @@ window.RanchoApp = {
         ${alertas
           .map(
             (al) =>
-              `<span class="alert-chip" onclick="RanchoApp.abrirFichaAnimal('${esc(al.id)}')">${esc(al.texto)}</span>`
+              `<button type="button" class="alert-chip" data-accion="abrirFichaAnimal" data-args='["${esc(al.id)}"]'>${esc(al.texto)}</button>`
           )
           .join('')}
       </div>
@@ -593,7 +649,7 @@ window.RanchoApp = {
               </svg>
               <input type="search" id="inputHistorial" inputmode="search" autocomplete="off"
                 placeholder="Ej. 15, #15, MX-260015, Comercializadora…"
-                oninput="RanchoApp.actualizarBusquedaHistorial(this.value)" />
+                data-al-escribir="actualizarBusquedaHistorial" data-args='["$valor"]' />
             </div>
             <p class="form-help-text">Incluye animales vendidos y muertos. Un número dado de baja se puede volver a usar; aquí se ven todos los animales que lo han llevado.</p>
           </div>
@@ -621,7 +677,7 @@ window.RanchoApp = {
 
     const notaFiltro = fFiltro
       ? `<p class="history-filter-note">Buscando solo en el Fierro ${esc(fFiltro.codigo)} (${esc(fFiltro.propietario)}).
-          <button type="button" class="btn-link-action" onclick="RanchoApp.cambiarFiltroFierro('TODOS')">Buscar en todos los fierros</button></p>`
+          <button type="button" class="btn-link-action" data-accion="cambiarFiltroFierro" data-args='["TODOS"]'>Buscar en todos los fierros</button></p>`
       : '';
 
     if (!r.consulta) {
@@ -713,11 +769,11 @@ window.RanchoApp = {
           ${salida ? `<div class="history-exit">${salida}</div>` : ''}
         </div>
         <div class="history-actions">
-          <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(a.id)}')">Expediente</button>
+          <button type="button" class="btn btn-outline btn-sm" data-accion="abrirFichaAnimal" data-args='["${esc(a.id)}"]'>Expediente</button>
           ${
             activo
-              ? `<button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${esc(a.id)}')">Editar</button>`
-              : `<button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">Datos de salida</button>`
+              ? `<button type="button" class="btn btn-outline btn-sm" data-accion="abrirModalAnimal" data-args='["${esc(a.id)}"]'>Editar</button>`
+              : `<button type="button" class="btn btn-outline btn-sm" data-accion="abrirModalBaja" data-args='["${esc(a.id)}"]'>Datos de salida</button>`
           }
         </div>
       </li>`;
@@ -730,7 +786,7 @@ window.RanchoApp = {
     const filasHTML =
       lista.length === 0
         ? `<tr>
-            <td colspan="8" style="text-align:center;padding:2.5rem;color:#66726a;">
+            <td class="celda-vacia" colspan="8">
               No hay registros que coincidan con los filtros seleccionados.
             </td>
           </tr>`
@@ -742,11 +798,11 @@ window.RanchoApp = {
               );
               const tieneMadre = a.madreNumero || a.madreArete;
               const madreBadge = tieneMadre
-                ? `<span class="madre-pill" onclick="RanchoApp.verMadreDeAnimal('${esc(a.id)}')" title="Ver expediente de la madre">
-                    <span>Fierro ${a.madreFierro || a.fierro} · #${esc(a.madreNumero || '?')}</span>
-                    <small style="color:#66726a;">(${esc(a.madreArete || 'S/A')})</small>
-                   </span>`
-                : `<span style="color:#66726a;font-size:0.78rem;">Sin registro</span>`;
+                ? `<button type="button" class="madre-pill" data-accion="verMadreDeAnimal" data-args='["${esc(a.id)}"]' title="Ver expediente de la madre">
+                    <span>Fierro ${esc(a.madreFierro || a.fierro)} · #${esc(a.madreNumero || '?')}</span>
+                    <small class="texto-tenue">(${esc(a.madreArete || 'S/A')})</small>
+                   </button>`
+                : `<span class="texto-tenue u-texto-078">Sin registro</span>`;
 
               const areteMal = !a.arete || a.arete === 'S/N' || a.estadoArete !== 'Correcto';
 
@@ -785,7 +841,7 @@ window.RanchoApp = {
                     </div>
                   </td>
                   <td>
-                    <div style="font-weight:600;">${edad.texto}</div>
+                    <div class="u-semibold">${edad.texto}</div>
                     <div class="arete-sub">Nac: ${esc(a.fechaNacimiento || 'No reg.')}</div>
                   </td>
                   <td>
@@ -799,7 +855,7 @@ window.RanchoApp = {
                     }
                   </td>
                   <td>
-                    <span style="font-family:var(--font-mono);font-weight:600;">
+                    <span class="u-mono u-semibold">
                       ${a.pesoActual ? esc(a.pesoActual) + ' kg' : '—'}
                     </span>
                   </td>
@@ -809,8 +865,8 @@ window.RanchoApp = {
                     </span>
                     ${
                       a.estatus !== 'Activo'
-                        ? `<div style="font-size:0.76rem;color:#525e56;margin-top:4px;line-height:1.35;">
-                            <div><strong>Fecha:</strong> ${esc(a.fechaBaja || '-')}</div>
+                        ? `<div class="detalle-baja">
+                            <div class="u-nowrap"><strong>Fecha:</strong> ${esc(a.fechaBaja || '-')}</div>
                             ${
                               a.estatus === 'Vendido'
                                 ? `<div><strong>Comprador:</strong> ${esc(a.compradorDestino || 'Sin registrar')}</div>
@@ -825,30 +881,30 @@ window.RanchoApp = {
                   </td>
                   <td>
                     <div class="row-actions">
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(a.id)}')">
+                      <button class="btn btn-outline btn-sm" data-accion="abrirFichaAnimal" data-args='["${esc(a.id)}"]'>
                         Expediente
                       </button>
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${esc(a.id)}')">
+                      <button class="btn btn-outline btn-sm" data-accion="abrirModalAnimal" data-args='["${esc(a.id)}"]'>
                         Editar
                       </button>
                       ${
                         a.sexo === 'Hembra' &&
                         a.estatus === 'Activo' &&
                         !(a.categoria || '').includes('Becerr')
-                          ? `<button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(a.id)}')">
+                          ? `<button class="btn btn-primary btn-sm" data-accion="abrirModalPartoDeVaca" data-args='["${esc(a.id)}"]'>
                               + Cría
                              </button>`
                           : ''
                       }
                       ${
                         a.estatus === 'Activo'
-                          ? `<button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">
+                          ? `<button class="btn btn-danger-soft btn-sm" data-accion="abrirModalBaja" data-args='["${esc(a.id)}"]'>
                               Vender / Baja
                              </button>`
-                          : `<button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">
+                          : `<button class="btn btn-outline btn-sm" data-accion="abrirModalBaja" data-args='["${esc(a.id)}"]'>
                               Datos venta
                              </button>
-                             <button class="btn btn-outline btn-sm" onclick="RanchoApp.confirmarReactivar('${esc(a.id)}')">
+                             <button class="btn btn-outline btn-sm" data-accion="confirmarReactivar" data-args='["${esc(a.id)}"]'>
                               Reactivar
                              </button>`
                       }
@@ -899,7 +955,7 @@ window.RanchoApp = {
                     </div>
                     <div class="acm-row acm-sub">
                       <span><strong>Edad:</strong> ${edad.texto}</span>
-                      ${tieneMadre ? `<button type="button" class="acm-madre-tag" onclick="RanchoApp.verMadreDeAnimal('${esc(a.id)}')">Madre: Fierro ${esc(a.madreFierro || a.fierro)} #${esc(a.madreNumero || '?')}</button>` : '<span class="acm-muted">Sin madre registrada</span>'}
+                      ${tieneMadre ? `<button type="button" class="acm-madre-tag" data-accion="verMadreDeAnimal" data-args='["${esc(a.id)}"]'>Madre: Fierro ${esc(a.madreFierro || a.fierro)} #${esc(a.madreNumero || '?')}</button>` : '<span class="acm-muted">Sin madre registrada</span>'}
                     </div>
                     ${numCrias > 0 ? `<div class="crias-count-note">${numCrias} ${numCrias === 1 ? 'cría registrada' : 'crías registradas'}</div>` : ''}
                     ${a.estatus !== 'Activo' ? `
@@ -911,16 +967,16 @@ window.RanchoApp = {
                   </div>
 
                   <div class="acm-actions">
-                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(a.id)}')">Expediente</button>
-                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalAnimal('${esc(a.id)}')">Editar</button>
+                    <button class="btn btn-outline btn-sm" data-accion="abrirFichaAnimal" data-args='["${esc(a.id)}"]'>Expediente</button>
+                    <button class="btn btn-outline btn-sm" data-accion="abrirModalAnimal" data-args='["${esc(a.id)}"]'>Editar</button>
                     ${a.sexo === 'Hembra' && a.estatus === 'Activo' && !(a.categoria || '').includes('Becerr') ? `
-                      <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(a.id)}')">+ Cría</button>
+                      <button class="btn btn-primary btn-sm" data-accion="abrirModalPartoDeVaca" data-args='["${esc(a.id)}"]'>+ Cría</button>
                     ` : ''}
                     ${a.estatus === 'Activo' ? `
-                      <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">Vender / Baja</button>
+                      <button class="btn btn-danger-soft btn-sm" data-accion="abrirModalBaja" data-args='["${esc(a.id)}"]'>Vender / Baja</button>
                     ` : `
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalBaja('${esc(a.id)}')">Datos venta</button>
-                      <button class="btn btn-outline btn-sm" onclick="RanchoApp.confirmarReactivar('${esc(a.id)}')">Reactivar</button>
+                      <button class="btn btn-outline btn-sm" data-accion="abrirModalBaja" data-args='["${esc(a.id)}"]'>Datos venta</button>
+                      <button class="btn btn-outline btn-sm" data-accion="confirmarReactivar" data-args='["${esc(a.id)}"]'>Reactivar</button>
                     `}
                   </div>
                 </div>
@@ -941,17 +997,17 @@ window.RanchoApp = {
               id="inputBusqueda"
               placeholder="Buscar por número (#15), arete SINIIGA, madre, raza o comprador..."
               value="${esc(this.busquedaTexto)}"
-              oninput="RanchoApp.actualizarBusqueda(this.value)"
+              data-al-escribir="actualizarBusqueda" data-args='["$valor"]'
             />
           </div>
           <div class="filter-group">
-            <select id="filterSelectSexo" aria-label="Filtrar por sexo" class="filter-select" onchange="RanchoApp.cambiarFiltroSexo(this.value)">
+            <select id="filterSelectSexo" aria-label="Filtrar por sexo" class="filter-select" data-al-cambiar="cambiarFiltroSexo" data-args='["$valor"]'>
               <option value="TODOS" ${this.filtroSexo === 'TODOS' ? 'selected' : ''}>Todos los sexos</option>
               <option value="Hembra" ${this.filtroSexo === 'Hembra' ? 'selected' : ''}>Solo hembras (♀)</option>
               <option value="Macho" ${this.filtroSexo === 'Macho' ? 'selected' : ''}>Solo machos (♂)</option>
             </select>
 
-            <select id="filterSelectArete" aria-label="Filtrar por estado de arete" class="filter-select" onchange="RanchoApp.cambiarFiltroArete(this.value)">
+            <select id="filterSelectArete" aria-label="Filtrar por estado de arete" class="filter-select" data-al-cambiar="cambiarFiltroArete" data-args='["$valor"]'>
               <option value="TODOS" ${this.filtroAreteEstado === 'TODOS' ? 'selected' : ''}>Todos los aretes</option>
               <option value="SIN_ARETE" ${this.filtroAreteEstado === 'SIN_ARETE' ? 'selected' : ''}>Sin arete o caído</option>
             </select>
@@ -961,7 +1017,7 @@ window.RanchoApp = {
         ${
           this.busquedaTexto.trim()
             ? `<div class="history-hint">
-                <button type="button" class="btn-link-action" onclick="RanchoApp.abrirBuscador(RanchoApp.busquedaTexto)">
+                <button type="button" class="btn-link-action" data-accion="buscarEnHistorialDesdePadron">
                   Buscar «${esc(this.busquedaTexto.trim())}» en todo el historial (incluye vendidos y muertos)
                 </button>
               </div>`
@@ -969,7 +1025,7 @@ window.RanchoApp = {
         }
 
         <div class="table-scroll desktop-only">
-          <table class="ganado-table">
+          <table class="ganado-table tabla-padron">
             <thead>
               <tr>
                 <th>Fierro y Núm.</th>
@@ -1005,13 +1061,13 @@ window.RanchoApp = {
 
     const filas =
       eventosFiltrados.length === 0
-        ? `<tr><td colspan="8" style="text-align:center;padding:2.5rem;color:#66726a;">No hay manejos sanitarios ni pesajes registrados.</td></tr>`
+        ? `<tr><td class="celda-vacia" colspan="8">No hay manejos sanitarios ni pesajes registrados.</td></tr>`
         : eventosFiltrados
             .map((ev) => {
               const anm = animales.find((a) => a.id === ev.animalId);
               return `
                 <tr>
-                  <td style="font-family:var(--font-mono);">${esc(ev.fecha)}</td>
+                  <td class="u-mono">${esc(ev.fecha)}</td>
                   <td>
                     ${
                       anm
@@ -1028,10 +1084,10 @@ window.RanchoApp = {
                   <td><span class="badge-status badge-status-Activo">${esc(ev.tipo)}</span></td>
                   <td><strong>${esc(ev.producto)}</strong></td>
                   <td>${esc(ev.dosis || '—')}</td>
-                  <td style="font-family:var(--font-mono);">${ev.pesoKg ? esc(ev.pesoKg) + ' kg' : '—'}</td>
-                  <td style="font-family:var(--font-mono);">${esc(ev.proximaFecha || '—')}</td>
+                  <td class="u-mono">${ev.pesoKg ? esc(ev.pesoKg) + ' kg' : '—'}</td>
+                  <td class="u-mono">${esc(ev.proximaFecha || '—')}</td>
                   <td>
-                    <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.borrarEventoSanitario('${esc(ev.id)}')">Eliminar</button>
+                    <button class="btn btn-danger-soft btn-sm" data-accion="borrarEventoSanitario" data-args='["${esc(ev.id)}"]'>Eliminar</button>
                   </td>
                 </tr>
               `;
@@ -1056,19 +1112,19 @@ window.RanchoApp = {
                       }
                       <span class="badge-status badge-status-Activo">${esc(ev.tipo)}</span>
                     </div>
-                    <span style="font-family:var(--font-mono);font-size:0.78rem;color:#525e56;">${esc(ev.fecha)}</span>
+                    <span class="u-mono mono-078">${esc(ev.fecha)}</span>
                   </div>
                   <div class="acm-body">
-                    <div style="font-weight:700;font-size:0.9rem;">${esc(ev.producto)}</div>
-                    <div class="acm-row acm-sub" style="margin-top:4px;">
+                    <div class="texto-fuerte-09">${esc(ev.producto)}</div>
+                    <div class="u-mt-4 acm-row acm-sub">
                       <span>Dosis: ${esc(ev.dosis || '—')}</span>
                       <span>Peso: ${ev.pesoKg ? esc(ev.pesoKg) + ' kg' : '—'}</span>
                       <span>Refuerzo: ${esc(ev.proximaFecha || '—')}</span>
                     </div>
-                    ${ev.notas ? `<div style="font-size:0.76rem;color:#66726a;margin-top:4px;">${esc(ev.notas)}</div>` : ''}
+                    ${ev.notas ? `<div class="nota-tenue">${esc(ev.notas)}</div>` : ''}
                   </div>
-                  <div class="acm-actions" style="justify-content:flex-end;">
-                    <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.borrarEventoSanitario('${esc(ev.id)}')">Eliminar</button>
+                  <div class="u-fin acm-actions">
+                    <button class="btn btn-danger-soft btn-sm" data-accion="borrarEventoSanitario" data-args='["${esc(ev.id)}"]'>Eliminar</button>
                   </div>
                 </div>
               `;
@@ -1079,11 +1135,11 @@ window.RanchoApp = {
       <div class="ledger-card">
         <div class="ledger-toolbar">
           <div>
-            <strong style="font-size:0.88rem;">Control de vacunación, desparasitación, pesajes y destetes</strong>
-            <span style="font-size:0.78rem;color:#525e56;margin-left:0.5rem;">Registro individual o por lote de fierro</span>
+            <strong class="u-texto-088">Control de vacunación, desparasitación, pesajes y destetes</strong>
+            <span class="toolbar-nota">Registro individual o por lote de fierro</span>
           </div>
           <div class="filter-group">
-            <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalSanidad()">
+            <button class="btn btn-primary btn-sm" data-accion="abrirModalSanidad">
               + Registrar manejo o pesaje
             </button>
           </div>
@@ -1127,7 +1183,7 @@ window.RanchoApp = {
 
     const filas =
       hembras.length === 0
-        ? `<tr><td colspan="5" style="text-align:center;padding:2.5rem;color:#66726a;">No hay vacas reproductoras registradas en este filtro.</td></tr>`
+        ? `<tr><td class="celda-vacia" colspan="5">No hay vacas reproductoras registradas en este filtro.</td></tr>`
         : hembras
             .map((vaca) => {
               const crias = animales.filter(
@@ -1140,16 +1196,16 @@ window.RanchoApp = {
 
               const listaCriasHTML =
                 crias.length === 0
-                  ? `<span style="color:#66726a;font-size:0.8rem;">Sin crías registradas</span>`
+                  ? `<span class="texto-tenue u-texto-080">Sin crías registradas</span>`
                   : crias
                       .map(
                         (c) => `
-                        <div style="margin:2px 6px 2px 0;padding:4px 8px;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;display:inline-flex;align-items:center;gap:6px;">
-                          <strong style="font-family:var(--font-mono);">#${esc(c.numero)}</strong>
-                          <span class="badge-sexo badge-sexo-${esc(c.sexo)}" style="font-size:0.68rem;padding:1px 5px;">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
-                          <small style="font-family:var(--font-mono);">Arete: ${esc(c.arete || 'S/N')}</small>
-                          <small style="color:#525e56;">(${esc(c.fechaNacimiento || 'S/F')})</small>
-                          <span class="badge-status badge-status-${esc(c.estatus)}" style="font-size:0.68rem;padding:1px 5px;">${esc(c.estatus)}</span>
+                        <div class="cria-chip">
+                          <strong class="u-mono">#${esc(c.numero)}</strong>
+                          <span class="badge-mini badge-sexo badge-sexo-${esc(c.sexo)}">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
+                          <small class="u-mono">Arete: ${esc(c.arete || 'S/N')}</small>
+                          <small class="texto-secundario">(${esc(c.fechaNacimiento || 'S/F')})</small>
+                          <span class="badge-mini badge-status badge-status-${esc(c.estatus)}">${esc(c.estatus)}</span>
                         </div>
                       `
                       )
@@ -1173,7 +1229,7 @@ window.RanchoApp = {
                   </td>
                   <td>${listaCriasHTML}</td>
                   <td>
-                    <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(vaca.id)}')">
+                    <button class="btn btn-primary btn-sm" data-accion="abrirModalPartoDeVaca" data-args='["${esc(vaca.id)}"]'>
                       + Registrar parto / cría
                     </button>
                   </td>
@@ -1197,16 +1253,16 @@ window.RanchoApp = {
 
               const criasHTML =
                 crias.length === 0
-                  ? `<span style="color:#66726a;font-size:0.78rem;">Sin crías registradas aún</span>`
-                  : `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">` +
+                  ? `<span class="texto-tenue u-texto-078">Sin crías registradas aún</span>`
+                  : `<div class="crias-fila">` +
                     crias
                       .map(
                         (c) => `
-                        <div style="padding:3px 7px;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;display:inline-flex;align-items:center;gap:5px;font-size:0.75rem;">
-                          <strong style="font-family:var(--font-mono);">#${esc(c.numero)}</strong>
-                          <span class="badge-sexo badge-sexo-${esc(c.sexo)}" style="font-size:0.65rem;padding:0 3px;">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
-                          <span style="font-family:var(--font-mono);font-size:0.7rem;color:#525e56;">${esc(c.arete || 'S/N')}</span>
-                          <span class="badge-status badge-status-${esc(c.estatus)}" style="font-size:0.65rem;padding:0 3px;">${esc(c.estatus)}</span>
+                        <div class="cria-chip cria-chip-sm">
+                          <strong class="u-mono">#${esc(c.numero)}</strong>
+                          <span class="badge-micro badge-sexo badge-sexo-${esc(c.sexo)}">${c.sexo === 'Hembra' ? '♀' : '♂'}</span>
+                          <span class="u-mono mono-070">${esc(c.arete || 'S/N')}</span>
+                          <span class="badge-micro badge-status badge-status-${esc(c.estatus)}">${esc(c.estatus)}</span>
                         </div>
                       `
                       )
@@ -1226,22 +1282,22 @@ window.RanchoApp = {
 
                   <div class="acm-body">
                     <div class="acm-row">
-                      <span>Arete: <strong class="arete-code" style="font-size:0.78rem;">${esc(vaca.arete || 'S/N')}</strong></span>
-                      <span>Raza: <strong>${esc(vaca.raza || 'Común')}</strong></span>
+                      <span>Arete: <strong class="u-texto-078 arete-code">${esc(vaca.arete || 'S/N')}</strong></span>
+                      <span>Raza: <strong>${esc(vaca.razaColor || 'Sin registrar')}</strong></span>
                     </div>
                     <div class="acm-row acm-sub">
                       <span>Etapa: ${esc(vaca.categoria || 'Vaca')}</span>
                       <span>Total crías: <strong>${crias.length}</strong></span>
                     </div>
-                    <div style="margin-top:6px;">
-                      <div style="font-size:0.74rem;font-weight:600;color:var(--ink-secondary);">Historial de partos:</div>
+                    <div class="u-mt-6">
+                      <div class="etiqueta-mini">Historial de partos:</div>
                       ${criasHTML}
                     </div>
                   </div>
 
                   <div class="acm-actions">
-                    <button class="btn btn-outline btn-sm" onclick="RanchoApp.abrirFichaAnimal('${esc(vaca.id)}')">Expediente</button>
-                    <button class="btn btn-primary btn-sm" onclick="RanchoApp.abrirModalPartoDeVaca('${esc(vaca.id)}')">+ Registrar parto / cría</button>
+                    <button class="btn btn-outline btn-sm" data-accion="abrirFichaAnimal" data-args='["${esc(vaca.id)}"]'>Expediente</button>
+                    <button class="btn btn-primary btn-sm" data-accion="abrirModalPartoDeVaca" data-args='["${esc(vaca.id)}"]'>+ Registrar parto / cría</button>
                   </div>
                 </div>
               `;
@@ -1252,8 +1308,8 @@ window.RanchoApp = {
       <div class="ledger-card">
         <div class="ledger-toolbar">
           <div>
-            <strong style="font-size:0.88rem;">Relación de vacas madres y sus crías</strong>
-            <span style="font-size:0.78rem;color:#525e56;margin-left:0.5rem;">Trazabilidad por número y arete materno</span>
+            <strong class="u-texto-088">Relación de vacas madres y sus crías</strong>
+            <span class="toolbar-nota">Trazabilidad por número y arete materno</span>
           </div>
         </div>
 
@@ -1411,7 +1467,7 @@ window.RanchoApp = {
       cont.innerHTML = window.RanchoDB.getFierros()
         .map((f) => {
           const sel = f.codigo === fierro;
-          return `<button type="button" role="radio" aria-checked="${sel}" class="fierro-pick tono-${f.tono} ${sel ? 'is-selected' : ''}" onclick="RanchoApp.seleccionarFierroModal('${esc(f.codigo)}')">
+          return `<button type="button" role="radio" aria-checked="${sel}" class="fierro-pick tono-${f.tono} ${sel ? 'is-selected' : ''}" data-accion="seleccionarFierroModal" data-args='["${esc(f.codigo)}"]'>
             ${sello(f.codigo)}
             <span class="fierro-pick-owner">${esc(f.propietario)}</span>
           </button>`;
@@ -1606,7 +1662,7 @@ window.RanchoApp = {
     document.getElementById('bajaAnimalInfo').innerHTML = `
       ${sello(animal.fierro)}
       <strong>Fierro ${esc(animal.fierro)} · Número #${esc(animal.numero)}</strong>
-      <span style="color:#525e56;">— Arete: ${esc(animal.arete || 'S/N')} (${esc(animal.sexo)} · ${esc(animal.categoria)})</span>
+      <span class="texto-secundario">— Arete: ${esc(animal.arete || 'S/N')} (${esc(animal.sexo)} · ${esc(animal.categoria)})</span>
     `;
     document.getElementById('bajaTipo').value = tipoInicial;
     document.getElementById('bajaFecha').value =
@@ -1714,29 +1770,29 @@ window.RanchoApp = {
 
     const contenedor = document.getElementById('fichaAnimalBody');
     contenedor.innerHTML = `
-      <div class="selected-animal-banner" style="justify-content:space-between;">
+      <div class="u-entre selected-animal-banner">
         <div class="identity-cell">
           ${sello(a.fierro)}
           <div>
-            <span class="numero-vaca" style="font-size:1.15rem;">Fierro ${esc(a.fierro)} · #${esc(a.numero)}</span>
-            <span class="badge-sexo badge-sexo-${esc(a.sexo)}" style="margin-left:0.4rem;">${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}</span>
-            <span class="badge-status badge-status-${esc(a.estatus)}" style="margin-left:0.35rem;">${esc(a.estatus)}</span>
+            <span class="u-texto-115 numero-vaca">Fierro ${esc(a.fierro)} · #${esc(a.numero)}</span>
+            <span class="u-ml-04 badge-sexo badge-sexo-${esc(a.sexo)}">${a.sexo === 'Hembra' ? '♀ Hembra' : '♂ Macho'}</span>
+            <span class="u-ml-035 badge-status badge-status-${esc(a.estatus)}">${esc(a.estatus)}</span>
           </div>
         </div>
-        <div style="display:flex;gap:0.4rem;">
-          <button class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalFicha');RanchoApp.abrirModalAnimal('${esc(a.id)}')">Editar datos</button>
-          <button class="btn btn-danger-soft btn-sm" onclick="RanchoApp.eliminarRegistroDefinitivo('${esc(a.id)}')">Eliminar</button>
+        <div class="fila-gap">
+          <button class="btn btn-outline btn-sm" data-accion="editarDesdeFicha" data-args='["${esc(a.id)}"]'>Editar datos</button>
+          <button class="btn btn-danger-soft btn-sm" data-accion="eliminarRegistroDefinitivo" data-args='["${esc(a.id)}"]'>Eliminar</button>
         </div>
       </div>
 
       <div class="detail-grid">
         <div class="detail-box">
           <div class="detail-box-label">Arete oficial (SINIIGA)</div>
-          <div class="detail-box-value" style="font-family:var(--font-mono);">${esc(a.arete || 'S/N')}</div>
+          <div class="u-mono detail-box-value">${esc(a.arete || 'S/N')}</div>
           <div class="arete-sub">${esc(a.colorArete || '')} · ${esc(a.estadoArete || 'Correcto')}</div>
           ${
             a.aretesAnteriores && a.aretesAnteriores.length > 0
-              ? `<div style="font-size:0.74rem;color:var(--warning);margin-top:3px;">Aretes previos: ${esc(a.aretesAnteriores.join(', '))}</div>`
+              ? `<div class="nota-aviso">Aretes previos: ${esc(a.aretesAnteriores.join(', '))}</div>`
               : ''
           }
         </div>
@@ -1758,7 +1814,7 @@ window.RanchoApp = {
           <div class="detail-box-value">
             ${
               a.madreNumero || a.madreArete
-                ? `Fierro ${a.madreFierro || a.fierro} · #${esc(a.madreNumero || '?')} (${esc(a.madreArete || 'S/N')})`
+                ? `Fierro ${esc(a.madreFierro || a.fierro)} · #${esc(a.madreNumero || '?')} (${esc(a.madreArete || 'S/N')})`
                 : 'Sin registro materno'
             }
           </div>
@@ -1767,8 +1823,8 @@ window.RanchoApp = {
 
       ${
         a.estatus !== 'Activo'
-          ? `<div class="fieldset-card sale-fieldset" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
-              <div style="font-size:0.83rem;line-height:1.45;">
+          ? `<div class="fila-entre fieldset-card sale-fieldset">
+              <div class="texto-salida">
                 <strong>${a.estatus === 'Vendido' ? 'Datos de venta' : 'Registro de baja por muerte'}</strong><br>
                 <span>Fecha: <strong>${esc(a.fechaBaja || '-')}</strong></span> ·
                 <span>Concepto: <strong>${esc(a.motivoBaja || '-')}</strong></span>
@@ -1781,7 +1837,7 @@ window.RanchoApp = {
                     : ''
                 }
               </div>
-              <button class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalFicha');RanchoApp.abrirModalBaja('${esc(a.id)}')">
+              <button class="btn btn-outline btn-sm" data-accion="salidaDesdeFicha" data-args='["${esc(a.id)}"]'>
                 Editar datos de salida
               </button>
              </div>`
@@ -1794,13 +1850,13 @@ window.RanchoApp = {
               <div class="fieldset-header">Crías registradas de esta vaca (${crias.length})</div>
               ${
                 crias.length === 0
-                  ? `<p style="font-size:0.82rem;color:#66726a;">No tiene crías registradas.</p>`
-                  : `<ul style="list-style:none;display:grid;gap:0.35rem;">
+                  ? `<p class="texto-tenue u-texto-082">No tiene crías registradas.</p>`
+                  : `<ul class="ficha-lista">
                       ${crias
                         .map(
                           (c) =>
-                            `<li style="padding:0.45rem 0.65rem;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;font-size:0.82rem;">
-                              <strong>Fierro ${esc(c.fierro)} #${esc(c.numero)}</strong> (${esc(c.sexo)}) — Arete: <span style="font-family:var(--font-mono);">${esc(c.arete || 'S/N')}</span> — Nac: ${esc(c.fechaNacimiento || '?')} — Estatus: <strong>${esc(c.estatus)}</strong>
+                            `<li class="ficha-item">
+                              <strong>Fierro ${esc(c.fierro)} #${esc(c.numero)}</strong> (${esc(c.sexo)}) — Arete: <span class="u-mono">${esc(c.arete || 'S/N')}</span> — Nac: ${esc(c.fechaNacimiento || '?')} — Estatus: <strong>${esc(c.estatus)}</strong>
                              </li>`
                         )
                         .join('')}
@@ -1814,13 +1870,13 @@ window.RanchoApp = {
         <div class="fieldset-header">Historial sanitario y pesajes (${sanidad.length})</div>
         ${
           sanidad.length === 0
-            ? `<p style="font-size:0.82rem;color:#66726a;">Sin registros sanitarios individuales.</p>`
-            : `<ul style="list-style:none;display:grid;gap:0.35rem;">
+            ? `<p class="texto-tenue u-texto-082">Sin registros sanitarios individuales.</p>`
+            : `<ul class="ficha-lista">
                 ${sanidad
                   .map(
                     (s) =>
-                      `<li style="padding:0.45rem 0.65rem;background:var(--bg-subtle);border:1px solid var(--border-line);border-radius:4px;font-size:0.82rem;">
-                        <strong style="font-family:var(--font-mono);">${esc(s.fecha)}</strong> — <strong>${esc(s.tipo)}:</strong> ${esc(s.producto)} ${s.dosis ? `(${esc(s.dosis)})` : ''} ${s.pesoKg ? `· Peso: ${esc(s.pesoKg)} kg` : ''}
+                      `<li class="ficha-item">
+                        <strong class="u-mono">${esc(s.fecha)}</strong> — <strong>${esc(s.tipo)}:</strong> ${esc(s.producto)} ${s.dosis ? `(${esc(s.dosis)})` : ''} ${s.pesoKg ? `· Peso: ${esc(s.pesoKg)} kg` : ''}
                        </li>`
                   )
                   .join('')}
@@ -2083,6 +2139,26 @@ window.RanchoApp = {
     this.ofrecerSubirDatosAntiguos();
   },
 
+  /* Acciones de botones que antes combinaban varias llamadas en el HTML */
+  abrirConfigSiPrivado() {
+    if (window.RanchoDB.sessionMode === 'REAL') this.abrirModalConfiguracion();
+  },
+  editarDesdeFicha(id) {
+    this.cerrarModal('modalFicha');
+    this.abrirModalAnimal(id);
+  },
+  salidaDesdeFicha(id) {
+    this.cerrarModal('modalFicha');
+    this.abrirModalBaja(id);
+  },
+  corregirRechazo(id) {
+    this.cerrarModal('modalConfig');
+    this.abrirModalAnimal(id);
+  },
+  buscarEnHistorialDesdePadron() {
+    this.abrirBuscador(this.busquedaTexto);
+  },
+
   /** Abre la cuenta con el formulario de contraseña listo (contraseña temporal). */
   pedirCambioDeContrasena() {
     this.abrirModalConfiguracion('cfgSeccionCuenta');
@@ -2213,7 +2289,7 @@ window.RanchoApp = {
           <span class="form-label">Fierro</span>
           <input type="text" class="form-input input-mono" data-campo="codigo" maxlength="3" value="${esc(f.codigo)}"
             placeholder="Ej. R" autocapitalize="characters" ${enUso ? 'readonly' : ''}
-            oninput="RanchoApp.previsualizarFilaFierro(this)" />
+            data-al-escribir="previsualizarFilaFierro" data-args='["$el"]' />
         </label>
         <label class="owner-field owner-name">
           <span class="form-label">Dueño</span>
@@ -2221,9 +2297,9 @@ window.RanchoApp = {
         </label>
         <label class="owner-field owner-tone">
           <span class="form-label">Color</span>
-          <select class="form-select" data-campo="tono" onchange="RanchoApp.previsualizarFilaFierro(this)">${tonos}</select>
+          <select class="form-select" data-campo="tono" data-al-cambiar="previsualizarFilaFierro" data-args='["$el"]'>${tonos}</select>
         </label>
-        <button type="button" class="btn-icon btn-icon-danger owner-remove" onclick="RanchoApp.quitarFilaFierro(this)"
+        <button type="button" class="btn-icon btn-icon-danger owner-remove" data-accion="quitarFilaFierro" data-args='["$el"]'
           ${enUso ? 'disabled' : ''} aria-label="Quitar Fierro ${esc(f.codigo)}"
           title="${enUso ? `No se puede quitar: tiene ${enUso} ${enUso === 1 ? 'animal' : 'animales'}` : 'Quitar este fierro'}">
           <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
@@ -2298,7 +2374,7 @@ window.RanchoApp = {
           <div class="account-name">${esc(u.nombre || u.email || '')}</div>
           <div class="account-meta">${esc(u.email || '')} · ${esc(nombresRol[db.rol()] || db.rol())} en ${esc(db.ranchoActual ? db.ranchoActual.nombre : '')}</div>
         </div>
-        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarSesion()">Cerrar sesión</button>
+        <button type="button" class="btn btn-outline btn-sm" data-accion="cerrarSesion">Cerrar sesión</button>
       </div>
       <details class="account-password">
         <summary>Cambiar contraseña</summary>
@@ -2312,7 +2388,7 @@ window.RanchoApp = {
             <input type="password" id="cfgPassNueva" class="form-input" autocomplete="new-password" minlength="8" />
           </div>
         </div>
-        <button type="button" id="btnCambiarPass" class="btn btn-outline btn-sm" onclick="RanchoApp.cambiarContrasena()">Cambiar contraseña</button>
+        <button type="button" id="btnCambiarPass" class="btn btn-outline btn-sm" data-accion="cambiarContrasena">Cambiar contraseña</button>
         <p class="form-help-text">Al cambiarla se cierran las sesiones de tus otros dispositivos.</p>
       </details>`;
   },
@@ -2388,10 +2464,10 @@ window.RanchoApp = {
                       <div class="rejected-actions">
                         ${
                           r.entidad === 'animal' && db.state.animales.some((a) => a.id === r.id)
-                            ? `<button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalConfig');RanchoApp.abrirModalAnimal('${esc(r.id)}')">Corregir</button>`
+                            ? `<button type="button" class="btn btn-outline btn-sm" data-accion="corregirRechazo" data-args='["${esc(r.id)}"]'>Corregir</button>`
                             : ''
                         }
-                        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.descartarRechazo('${esc(r.clave)}')">Descartar mi cambio</button>
+                        <button type="button" class="btn btn-outline btn-sm" data-accion="descartarRechazo" data-args='["${esc(r.clave)}"]'>Descartar mi cambio</button>
                       </div>
                     </li>`
                   )
@@ -2400,7 +2476,7 @@ window.RanchoApp = {
             </div>`
           : ''
       }
-      <button type="button" id="btnSyncAhora" class="btn btn-outline btn-sm" onclick="RanchoApp.sincronizarAhora()">Sincronizar ahora</button>`;
+      <button type="button" id="btnSyncAhora" class="btn btn-outline btn-sm" data-accion="sincronizarAhora">Sincronizar ahora</button>`;
   },
 
   async sincronizarAhora() {
@@ -2444,13 +2520,13 @@ window.RanchoApp = {
     let html = '';
     if (db.debeCambiarContrasena() && !db.sesionVencida) {
       html = `<span>Estás usando una contraseña temporal. Cámbiala por una que solo tú conozcas.</span>
-        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.pedirCambioDeContrasena()">Cambiar ahora</button>`;
+        <button type="button" class="btn btn-outline btn-sm" data-accion="pedirCambioDeContrasena">Cambiar ahora</button>`;
     } else if (db.sesionVencida) {
       html = `<span>Tu sesión venció. Los cambios se guardan en este dispositivo, pero no se suben hasta que vuelvas a entrar.</span>
-        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.mostrarFormularioAcceso('Tu sesión venció. Vuelve a entrar para sincronizar.')">Entrar de nuevo</button>`;
+        <button type="button" class="btn btn-outline btn-sm" data-accion="mostrarFormularioAcceso" data-args='["Tu sesión venció. Vuelve a entrar para sincronizar."]'>Entrar de nuevo</button>`;
     } else if (rechazos) {
       html = `<span>${rechazos} ${rechazos === 1 ? 'cambio no se pudo' : 'cambios no se pudieron'} subir al servidor (por ejemplo, un número o arete que ya existe).</span>
-        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalConfiguracion('cfgSeccionSync')">Revisar</button>`;
+        <button type="button" class="btn btn-outline btn-sm" data-accion="abrirModalConfiguracion" data-args='["cfgSeccionSync"]'>Revisar</button>`;
     } else if (!db.puedeEditar()) {
       html = '<span>Tu cuenta es de solo lectura en este rancho: puedes consultar y exportar, pero no modificar.</span>';
     }
@@ -2488,14 +2564,14 @@ window.RanchoApp = {
                 <span>${esc(m.email)}</span>
               </div>
               <select class="form-select member-role" aria-label="Rol de ${esc(m.nombre)}"
-                onchange="RanchoApp.cambiarRolMiembro('${esc(m.id)}', this.value, this)" ${m.id === yo ? 'disabled' : ''}>
+                data-al-cambiar="cambiarRolMiembro" data-args='["${esc(m.id)}","$valor","$el"]' ${m.id === yo ? 'disabled' : ''}>
                 ${opcion('admin', 'Administrador', m.rol)}${opcion('editor', 'Editor', m.rol)}${opcion('lector', 'Solo lectura', m.rol)}
               </select>
-              <button type="button" class="btn-icon" onclick="RanchoApp.restablecerContrasenaMiembro('${esc(m.id)}')"
+              <button type="button" class="btn-icon" data-accion="restablecerContrasenaMiembro" data-args='["${esc(m.id)}"]'
                 ${m.id === yo ? 'disabled' : ''} aria-label="Restablecer la contraseña de ${esc(m.nombre)}" title="Restablecer contraseña">
                 <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="7" cy="12" r="3.2" /><path d="M9.3 9.7L16 3M13.5 5.5l2 2M11.8 7.2l1.5 1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
               </button>
-              <button type="button" class="btn-icon btn-icon-danger" onclick="RanchoApp.quitarMiembro('${esc(m.id)}')"
+              <button type="button" class="btn-icon btn-icon-danger" data-accion="quitarMiembro" data-args='["${esc(m.id)}"]'
                 ${m.id === yo ? 'disabled' : ''} aria-label="Quitar acceso a ${esc(m.nombre)}" title="Quitar acceso">
                 <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6" stroke-linecap="round" stroke-linejoin="round" /></svg>
               </button>
@@ -2527,7 +2603,7 @@ window.RanchoApp = {
             </select>
           </div>
         </div>
-        <button type="button" id="btnAgregarMiembro" class="btn btn-primary btn-sm" onclick="RanchoApp.agregarMiembro()">Dar acceso</button>
+        <button type="button" id="btnAgregarMiembro" class="btn btn-primary btn-sm" data-accion="agregarMiembro">Dar acceso</button>
         <p class="form-help-text">Comparte el correo y la contraseña inicial con la persona por un medio privado; al entrar se le pedirá cambiarla. Si ya tiene cuenta, su contraseña no se cambia.</p>
       </details>`;
   },
@@ -2616,7 +2692,7 @@ window.RanchoApp = {
       antiguos && window.RanchoDB.puedeEditar()
         ? `<div class="legacy-data">
             <span>Este dispositivo tiene <strong>${antiguos.animales.length}</strong> animales de la versión anterior (con PIN) que aún no están en el servidor.</span>
-            <button type="button" class="btn btn-primary btn-sm" onclick="RanchoApp.subirDatosAntiguos()">Subir al servidor</button>
+            <button type="button" class="btn btn-primary btn-sm" data-accion="subirDatosAntiguos">Subir al servidor</button>
           </div>`
         : '';
   },
