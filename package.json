@@ -1,8 +1,21 @@
 {
-  "name": "control-ganadero-fierros-fh",
-  "version": "1.0.0",
-  "description": "Sistema de gestión y control ganadero en la nube y modo offline para Fierro F y Fierro H, con control anti-duplicados de números y aretes, genealogía materna, sanidad, bajas y exportación en tablas PDF y Excel.",
+  "name": "control-ganadero",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema de control ganadero con varios dueños por terreno, historial de bajas, sanidad y exportación. Frontend estático + API en Vercel con PostgreSQL.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "npx --yes serve . -l 3000"
+    "dev": "node scripts/servidor-local.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.23.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16"
   }
 }

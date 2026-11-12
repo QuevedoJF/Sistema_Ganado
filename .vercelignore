@@ -1,0 +1,6 @@
+tests/
+scripts/
+.datos-locales/
+.codex/
+.gemini/
+*.log

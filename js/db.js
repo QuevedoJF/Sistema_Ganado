@@ -1,28 +1,18 @@
 /**
- * Capa de Persistencia con Separación de Seguridad:
- * 1. Modo Portafolio / Demo Público (Datos ficticios aislados para visitantes del portafolio)
- * 2. Modo Rancho Privado (Protegido por Clave/PIN y sincronizado con la Nube real)
+ * Capa de datos de la app.
+ * 1. Modo Portafolio / Demo: datos ficticios solo en este navegador (sin servidor).
+ * 2. Modo Rancho privado: cuenta en el servidor (API propia + PostgreSQL). Los datos se guardan
+ *    también en el dispositivo (IndexedDB) para trabajar sin señal y se sincronizan solos.
  */
 
-const STORAGE_KEY_REAL = 'rancho_fh_privado_real_v1';
 const STORAGE_KEY_DEMO = 'rancho_fh_demo_portfolio_v1';
-const STORAGE_KEY_CLOUD = 'rancho_fh_cloud_config_v1';
-const STORAGE_KEY_AUTH = 'rancho_fh_auth_config_v1';
-const STORAGE_KEY_CLOUD_AUTH = 'rancho_fh_cloud_auth_v1';
+const STORAGE_KEY_REAL_ANTIGUO = 'rancho_fh_privado_real_v1'; // datos privados de la versión con PIN
+const STORAGE_KEY_SESION = 'rancho_sesion_v2';
+const CLAVE_ANTIGUOS_SUBIDOS = 'rancho_datos_antiguos_subidos';
 
 window.RanchoDB = {
-  // 'DEMO' (visitantes del portafolio) | 'REAL' (propietarios autenticados)
+  // 'DEMO' (visitantes del portafolio) | 'REAL' (cuenta del rancho)
   sessionMode: 'DEMO',
-
-  // El PIN nunca se guarda en texto plano: solo su hash PBKDF2-SHA256 con sal aleatoria.
-  // Nota: esto protege el PIN guardado, pero la protección real de los datos en la nube
-  // requiere autenticación del lado del servidor (Firebase Auth + reglas de Firestore).
-  authConfig: {
-    pinSalt: '',
-    pinHashV2: '',
-    pinIterations: 150000,
-    rememberSession: false
-  },
 
   state: {
     config: {
@@ -35,142 +25,210 @@ window.RanchoDB = {
     eventosSanitarios: []
   },
 
-  cloudConfig: {
-    enabled: false,
-    provider: 'firebase',
-    projectId: '',
-    apiKey: '',
-    ranchoCode: 'RANCHO-FH-PRIVADO',
-    customEndpoint: '',
-    pendingSync: false,
-    lastSyncAt: null,
-    statusText: 'Modo Portafolio (Datos de prueba)'
-  },
+  // Sesión y sincronización con el servidor
+  sesion: null, // { usuario, ranchos, ranchoId }
+  ranchoActual: null, // { id, nombre, rol }
+  base: null, // última versión confirmada por el servidor (ver js/sync.js)
+  cursor: 0,
+  rechazos: {},
+  sesionVencida: false,
+  ultimaSync: null,
+  syncError: '',
+  _sincronizando: null,
+  _temporizadorSync: null,
 
-  // Sesión de Firebase Authentication (correo y contraseña). La contraseña NUNCA se guarda:
-  // solo el token de refresco que Firebase entrega, igual que hace el SDK oficial.
-  cloudAuth: { email: '', uid: '', idToken: '', refreshToken: '', expiresAt: 0 },
+  // Compatibilidad con la interfaz: texto y punto de estado
+  cloudConfig: { statusText: 'Vista Portafolio (Datos Demo)', enabled: false, pendingSync: false },
 
   listeners: [],
 
-  init() {
-    this.loadAuthConfig();
-    this.loadCloudConfig();
-    this.loadCloudAuth();
-
-    // Revisar si la URL pide explícitamente ?modo=portafolio o ?demo=1
+  async init() {
     const params = typeof location !== 'undefined' ? new URLSearchParams(location.search) : null;
-    const forceDemo = params && (params.get('modo') === 'portafolio' || params.get('demo') === '1');
+    const forzarDemo = params && (params.get('modo') === 'portafolio' || params.get('demo') === '1');
+    const vistaElegida = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('rancho_active_mode') : null;
+    this.sesion = this._leerSesionGuardada();
 
-    const savedSession =
-      typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('rancho_active_mode') : null;
-
-    if (!forceDemo && (savedSession === 'REAL' || this.authConfig.rememberSession)) {
-      this.activarModoReal();
+    if (!forzarDemo && this.sesion && vistaElegida !== 'DEMO') {
+      await this.activarModoReal();
+      this.verificarSesion();
+      this.sincronizar();
     } else {
       this.activarModoDemo();
     }
 
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('online', () => {
-        this.updateNetworkStatus();
-        if (this.sessionMode === 'REAL' && this.cloudConfig.enabled && this.cloudConfig.pendingSync) {
-          this.syncToCloud();
-        }
+    window.addEventListener('online', () => {
+      this.updateNetworkStatus();
+      this.sincronizar();
+    });
+    window.addEventListener('offline', () => this.updateNetworkStatus());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') this.sincronizar();
+    });
+    // Traer cambios de otros dispositivos cada minuto mientras la app está abierta
+    setInterval(() => {
+      if (document.visibilityState === 'visible') this.sincronizar();
+    }, 60000);
+  },
+
+  /* ================================================================ PERMISOS */
+  rol() {
+    return this.sessionMode === 'REAL' && this.ranchoActual ? this.ranchoActual.rol : 'admin';
+  },
+  puedeEditar() {
+    return this.rol() !== 'lector';
+  },
+  esAdmin() {
+    return this.rol() === 'admin';
+  },
+
+  /* ================================================================ API */
+  async _api(metodo, ruta, cuerpo) {
+    let res;
+    try {
+      res = await fetch(ruta, {
+        method: metodo,
+        credentials: 'same-origin',
+        headers: cuerpo !== undefined ? { 'Content-Type': 'application/json' } : {},
+        body: cuerpo !== undefined ? JSON.stringify(cuerpo) : undefined
       });
-      window.addEventListener('offline', () => {
-        this.updateNetworkStatus();
-      });
+    } catch (e) {
+      const err = new Error('Sin conexión con el servidor. Revisa tu señal e intenta de nuevo.');
+      err.sinRed = true;
+      throw err;
+    }
+    const datos = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(datos.mensaje || `Error del servidor (${res.status}).`);
+      err.status = res.status;
+      err.codigo = datos.error;
+      throw err;
+    }
+    return datos;
+  },
+
+  /* ================================================================ SESIÓN */
+  _leerSesionGuardada() {
+    try {
+      const s = JSON.parse(localStorage.getItem(STORAGE_KEY_SESION) || 'null');
+      return s && s.usuario && Array.isArray(s.ranchos) && s.ranchos.length ? s : null;
+    } catch (e) {
+      return null;
     }
   },
 
-  loadAuthConfig() {
-    const raw = localStorage.getItem(STORAGE_KEY_AUTH);
-    if (raw) {
-      try {
-        this.authConfig = { ...this.authConfig, ...JSON.parse(raw) };
-      } catch (e) {
-        console.warn('Error leyendo auth config:', e);
+  _guardarSesion(datos) {
+    const ranchoId =
+      (this.sesion && datos.ranchos.some((r) => r.id === this.sesion.ranchoId) && this.sesion.ranchoId) ||
+      (datos.ranchos[0] && datos.ranchos[0].id);
+    this.sesion = { usuario: datos.usuario, ranchos: datos.ranchos, ranchoId };
+    localStorage.setItem(STORAGE_KEY_SESION, JSON.stringify(this.sesion));
+  },
+
+  estadoServidor() {
+    return this._api('GET', '/api/estado');
+  },
+
+  async _entrarConDatos(datos) {
+    if (!datos.ranchos || datos.ranchos.length === 0) {
+      throw new Error('Tu cuenta todavía no tiene acceso a ningún rancho. Pide al administrador que te agregue.');
+    }
+    this._guardarSesion(datos);
+    this.sesionVencida = false;
+    sessionStorage.setItem('rancho_active_mode', 'REAL');
+    await this.activarModoReal();
+    await this.sincronizar({ esperar: true });
+  },
+
+  async entrar(email, password) {
+    const datos = await this._api('POST', '/api/auth/entrar', { email, password });
+    await this._entrarConDatos(datos);
+  },
+
+  async configurarInicial(campos) {
+    const datos = await this._api('POST', '/api/configuracion-inicial', campos);
+    await this._entrarConDatos(datos);
+  },
+
+  /** Comprueba en segundo plano que la sesión siga vigente y actualiza los roles. */
+  async verificarSesion() {
+    if (!this.sesion || !navigator.onLine) return;
+    try {
+      const datos = await this._api('GET', '/api/auth/yo');
+      if (!datos.usuario) {
+        this.sesionVencida = true;
+      } else {
+        this.sesionVencida = false;
+        this._guardarSesion(datos);
+        const r = datos.ranchos.find((x) => x.id === this.sesion.ranchoId);
+        if (r && this.ranchoActual) this.ranchoActual = { ...this.ranchoActual, ...r };
       }
+      this.updateNetworkStatus();
+    } catch (e) {
+      /* sin red: se reintenta después */
     }
   },
 
-  saveAuthConfig(newAuth) {
-    this.authConfig = { ...this.authConfig, ...newAuth };
-    localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(this.authConfig));
+  /** Cambia a la vista de portafolio sin cerrar la sesión. */
+  verPortafolio() {
+    sessionStorage.setItem('rancho_active_mode', 'DEMO');
+    this.activarModoDemo();
   },
 
-  /** true si existe un PIN (hasheado o heredado en texto plano de versiones anteriores). */
-  tienePinConfigurado() {
-    return !!(this.authConfig.pinHashV2 || this.authConfig.pinHash);
+  /** Vuelve al rancho privado si hay sesión guardada; devuelve false si hay que iniciar sesión. */
+  async volverAlRancho() {
+    if (!this.sesion) return false;
+    sessionStorage.setItem('rancho_active_mode', 'REAL');
+    await this.activarModoReal();
+    this.verificarSesion();
+    this.sincronizar();
+    return true;
   },
 
-  async _derivarHashPin(pin, saltB64, iterations) {
-    if (!window.crypto || !window.crypto.subtle) {
-      throw new Error('Este navegador no permite cifrar el PIN (se requiere HTTPS).');
-    }
-    const enc = new TextEncoder();
-    const salt = Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0));
-    const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, [
-      'deriveBits'
-    ]);
-    const bits = await crypto.subtle.deriveBits(
-      { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
-      keyMaterial,
-      256
-    );
-    return btoa(String.fromCharCode(...new Uint8Array(bits)));
-  },
-
-  _compararSeguro(a, b) {
-    if (a.length !== b.length) return false;
-    let diff = 0;
-    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    return diff === 0;
-  },
-
-  /** Guarda un PIN nuevo como hash con sal aleatoria y elimina cualquier PIN en texto plano. */
-  async establecerPin(pinNuevo) {
-    const limpio = String(pinNuevo || '').trim();
-    if (limpio.length < 4) {
-      throw new Error('El PIN debe tener al menos 4 caracteres.');
-    }
-    const saltBytes = crypto.getRandomValues(new Uint8Array(16));
-    const pinSalt = btoa(String.fromCharCode(...saltBytes));
-    const pinIterations = 150000;
-    const pinHashV2 = await this._derivarHashPin(limpio, pinSalt, pinIterations);
-    const { pinHash, ...resto } = this.authConfig; // descartar PIN heredado en texto plano
-    this.authConfig = { ...resto, pinSalt, pinHashV2, pinIterations };
-    localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(this.authConfig));
+  contarPendientes() {
+    if (this.sessionMode !== 'REAL' || !this.base) return 0;
+    return window.RanchoSync.calcularOps(this.state, this.base, this.rechazos).length;
   },
 
   /**
-   * Verifica el PIN. Devuelve { ok, pinDebil }.
-   * Si el PIN estaba guardado en texto plano (versiones anteriores), lo migra a hash.
+   * Cierra la sesión en este dispositivo y borra la copia local del rancho.
+   * Si hay cambios sin subir, lanza un error con codigo PENDIENTES (salvo forzar).
    */
-  async verificarPinPropietario(pinIngresado) {
-    const limpio = String(pinIngresado || '').trim();
-    if (!limpio) return { ok: false };
-
-    if (this.authConfig.pinHashV2 && this.authConfig.pinSalt) {
-      const calculado = await this._derivarHashPin(
-        limpio,
-        this.authConfig.pinSalt,
-        this.authConfig.pinIterations || 150000
-      );
-      return { ok: this._compararSeguro(calculado, this.authConfig.pinHashV2), pinDebil: false };
+  async salir({ forzar = false } = {}) {
+    const pendientes = this.contarPendientes();
+    if (pendientes > 0 && !forzar) {
+      const err = new Error(`Hay ${pendientes} cambio(s) sin subir al servidor.`);
+      err.codigo = 'PENDIENTES';
+      throw err;
     }
-
-    // Migración desde PIN en texto plano (incluye el antiguo valor por defecto "1234")
-    const legado = this.authConfig.pinHash !== undefined ? String(this.authConfig.pinHash).trim() : '';
-    if (legado && this._compararSeguro(limpio, legado)) {
-      const pinDebil = legado === '1234' || legado.length < 4;
-      if (legado.length >= 4) {
-        await this.establecerPin(legado);
-      }
-      return { ok: true, pinDebil };
+    try {
+      await this._api('POST', '/api/auth/salir', {});
+    } catch (e) {
+      /* sin red: la cookie expira sola */
     }
-    return { ok: false };
+    if (this.ranchoActual) await window.RanchoAlmacen.borrar(`rancho:${this.ranchoActual.id}`).catch(() => {});
+    localStorage.removeItem(STORAGE_KEY_SESION);
+    this.sesion = null;
+    this.ranchoActual = null;
+    this.base = null;
+    sessionStorage.setItem('rancho_active_mode', 'DEMO');
+    this.activarModoDemo();
+  },
+
+  cambiarContrasena(actual, nueva) {
+    return this._api('POST', '/api/auth/contrasena', { actual, nueva });
+  },
+
+  listarMiembros() {
+    return this._api('GET', `/api/ranchos/${this.ranchoActual.id}/miembros`);
+  },
+  agregarMiembro(datos) {
+    return this._api('POST', `/api/ranchos/${this.ranchoActual.id}/miembros`, datos);
+  },
+  cambiarRolMiembro(usuarioId, rol) {
+    return this._api('PATCH', `/api/ranchos/${this.ranchoActual.id}/miembros/${encodeURIComponent(usuarioId)}`, { rol });
+  },
+  quitarMiembro(usuarioId) {
+    return this._api('DELETE', `/api/ranchos/${this.ranchoActual.id}/miembros/${encodeURIComponent(usuarioId)}`, {});
   },
 
   /**
@@ -399,92 +457,225 @@ window.RanchoDB = {
     this.notify();
   },
 
-  activarModoReal() {
+  /** Carga el rancho de la sesión desde la copia del dispositivo (funciona sin señal). */
+  async activarModoReal() {
     this.sessionMode = 'REAL';
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem('rancho_active_mode', 'REAL');
+    const id = this.sesion.ranchoId;
+    this.ranchoActual = { ...(this.sesion.ranchos.find((r) => r.id === id) || this.sesion.ranchos[0]) };
+
+    let guardado = null;
+    try {
+      guardado = await window.RanchoAlmacen.leer(`rancho:${this.ranchoActual.id}`);
+    } catch (e) {
+      console.warn('No se pudo leer la copia local del rancho:', e);
     }
 
-    const rawReal = localStorage.getItem(STORAGE_KEY_REAL);
-    if (rawReal) {
-      try {
-        const parsed = JSON.parse(rawReal);
-        this.state = this.normalizarEstado(parsed, {
-          nombreRancho: 'Mi Rancho Ganadero',
-          edadDesteteMeses: 7
-        });
-      } catch (e) {
-        this.inicializarRanchoRealVacio();
-      }
+    if (guardado && guardado.state) {
+      this.state = this.normalizarEstado(guardado.state, { nombreRancho: this.ranchoActual.nombre, edadDesteteMeses: 7 });
+      this.base = guardado.base || window.RanchoSync.baseVacia();
+      this.cursor = Number(guardado.cursor) || 0;
+      this.rechazos = guardado.rechazos || {};
+      this.ultimaSync = guardado.ultimaSync || null;
     } else {
-      this.inicializarRanchoRealVacio();
+      // Primera vez en este dispositivo: se llena con la primera sincronización
+      this.state = {
+        config: { nombreRancho: this.ranchoActual.nombre, fierros: [], edadDesteteMeses: 7 },
+        animales: [],
+        eventosSanitarios: []
+      };
+      this.base = window.RanchoSync.baseVacia();
+      this.cursor = 0;
+      this.rechazos = {};
+      this.ultimaSync = null;
     }
-
     this.updateNetworkStatus();
-    if (this.cloudConfig.enabled && navigator.onLine) {
-      this.pullFromCloud();
-    }
     this.notify();
   },
 
-  inicializarRanchoRealVacio() {
-    this.state = {
-      config: {
-        nombreRancho: 'Rancho Ganadero (Privado)',
-        fierros: [
-          { codigo: 'F', propietario: 'Propietario Fierro F', tono: 0 },
-          { codigo: 'H', propietario: 'Propietario Fierro H', tono: 1 }
-        ],
-        edadDesteteMeses: 7,
-        updatedAt: new Date().toISOString()
-      },
-      animales: [],
-      eventosSanitarios: []
-    };
+  _persistir() {
+    if (this.sessionMode !== 'REAL' || !this.ranchoActual) return Promise.resolve();
+    return window.RanchoAlmacen.guardar(`rancho:${this.ranchoActual.id}`, {
+      state: this.state,
+      base: this.base,
+      cursor: this.cursor,
+      rechazos: this.rechazos,
+      ultimaSync: this.ultimaSync
+    }).catch((e) => {
+      console.error('No se pudo guardar en el dispositivo:', e);
+      const app = window.RanchoApp;
+      if (app && app.mostrarToast) {
+        app.mostrarToast('No se pudo guardar en este dispositivo. Libera espacio o descarga un respaldo.', 'error');
+      }
+    });
+  },
+
+  _programarSync() {
+    clearTimeout(this._temporizadorSync);
+    this._temporizadorSync = setTimeout(() => this.sincronizar(), 800);
+  },
+
+  /**
+   * Sube los cambios pendientes y baja los de otros dispositivos.
+   * Nunca lanza errores: deja el estado en syncError / sesionVencida para la interfaz.
+   */
+  sincronizar({ esperar = false } = {}) {
+    if (this.sessionMode !== 'REAL' || !this.ranchoActual) return Promise.resolve({ ok: false });
+    if (this._sincronizando) {
+      this._otraVez = true;
+      return esperar ? this._sincronizando : Promise.resolve({ ok: false, enCurso: true });
+    }
+    if (!navigator.onLine) {
+      this.updateNetworkStatus();
+      return Promise.resolve({ ok: false, sinRed: true });
+    }
+
+    const S = window.RanchoSync;
+    const ranchoId = this.ranchoActual.id;
+    this._sincronizando = (async () => {
+      this.updateNetworkStatus();
+      try {
+        for (let vuelta = 0; vuelta < 25; vuelta++) {
+          const inicial = this.cursor === 0;
+          const pendientes = inicial || !this.puedeEditar() ? [] : S.calcularOps(this.state, this.base, this.rechazos);
+          const lote = pendientes.slice(0, S.LOTE_MAXIMO);
+          const foto = S.fotoDe(this.state, lote);
+          const resp = await this._api('POST', `/api/ranchos/${ranchoId}/sync`, { cursor: this.cursor, ops: lote });
+          if (this.sessionMode !== 'REAL' || !this.ranchoActual || this.ranchoActual.id !== ranchoId) break;
+
+          if (resp.rol && resp.rol !== this.ranchoActual.rol) this.ranchoActual.rol = resp.rol;
+
+          if (inicial) {
+            // Primera descarga: el servidor manda todo; se conservan solo creaciones locales sin subir
+            const locales = this.state.animales.filter((a) => !resp.animales.some((x) => x.id === a.id));
+            const eventosLocales = this.state.eventosSanitarios.filter((e) => !resp.eventosSanitarios.some((x) => x.id === e.id));
+            const servidor = this.normalizarEstado(
+              { config: resp.config, animales: resp.animales, eventosSanitarios: resp.eventosSanitarios },
+              { nombreRancho: this.ranchoActual.nombre, edadDesteteMeses: 7 }
+            );
+            this.base = {
+              config: resp.config ? { ...resp.config } : null,
+              animales: Object.fromEntries(resp.animales.map((a) => [a.id, a])),
+              eventos: Object.fromEntries(resp.eventosSanitarios.map((e) => [e.id, e]))
+            };
+            this.state = {
+              config: servidor.config,
+              animales: [...locales, ...servidor.animales],
+              eventosSanitarios: [...eventosLocales, ...servidor.eventosSanitarios]
+            };
+            this.cursor = resp.cursor;
+          } else {
+            const r = S.aplicarRespuesta(this.state, this.base, { ops: lote, foto }, resp, this.rechazos);
+            this.state = r.estado;
+            this.base = r.base;
+            this.cursor = r.cursor;
+            this.rechazos = r.rechazos;
+          }
+          if (resp.config && resp.config.nombreRancho) this.ranchoActual.nombre = resp.config.nombreRancho;
+
+          this.ultimaSync = new Date().toISOString();
+          this.syncError = '';
+          this.sesionVencida = false;
+          await this._persistir();
+          this.notify();
+
+          const quedan = this.puedeEditar() ? S.calcularOps(this.state, this.base, this.rechazos).length : 0;
+          if (quedan === 0 || (!inicial && lote.length === 0)) break;
+        }
+        return { ok: true, rechazos: Object.keys(this.rechazos).length };
+      } catch (err) {
+        if (err.status === 401) this.sesionVencida = true;
+        else if (err.status === 403) this.syncError = 'Tu cuenta ya no tiene acceso a este rancho.';
+        else this.syncError = err.sinRed ? '' : err.message;
+        return { ok: false, error: err.message, status: err.status };
+      } finally {
+        this._sincronizando = null;
+        this.updateNetworkStatus();
+        if (this._otraVez) {
+          this._otraVez = false;
+          this._programarSync();
+        }
+      }
+    })();
+    return this._sincronizando;
+  },
+
+  /** Cambios que el servidor rechazó (número/arete duplicado, permisos...). */
+  listaRechazos() {
+    return Object.entries(this.rechazos || {}).map(([clave, r]) => {
+      let titulo = 'Datos del rancho';
+      if (r.entidad === 'animal') {
+        const a = this.state.animales.find((x) => x.id === r.id);
+        titulo = a ? `Fierro ${a.fierro} #${a.numero}` : 'Animal';
+      } else if (r.entidad === 'evento') {
+        const e = this.state.eventosSanitarios.find((x) => x.id === r.id);
+        titulo = e ? `Manejo sanitario: ${e.tipo} (${e.fecha || 'sin fecha'})` : 'Manejo sanitario';
+      }
+      return { clave, titulo, ...r };
+    });
+  },
+
+  descartarRechazo(clave) {
+    this.state = window.RanchoSync.descartarCambio(this.state, this.base, clave);
+    delete this.rechazos[clave];
+    this._persistir();
+    this.updateNetworkStatus();
+  },
+
+  /** Datos privados de la versión anterior (con PIN) guardados en este navegador. */
+  datosAntiguosDelDispositivo() {
+    if (localStorage.getItem(CLAVE_ANTIGUOS_SUBIDOS)) return null;
+    try {
+      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY_REAL_ANTIGUO) || 'null');
+      return raw && Array.isArray(raw.animales) && raw.animales.length ? raw : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  /**
+   * Reemplaza los datos del rancho por los de un respaldo o de la versión anterior.
+   * Las diferencias se suben al servidor en la siguiente sincronización.
+   */
+  importarEstado(raw, { marcarAntiguos = false } = {}) {
+    const limpio = this.normalizarEstado(raw, this.state.config);
+    if (this.sessionMode === 'REAL' && !this.esAdmin()) {
+      // Solo un admin cambia fierros y nombre: se conserva la configuración del servidor
+      limpio.config = this.state.config;
+    } else if (this.sessionMode === 'REAL' && this.ranchoActual) {
+      limpio.config.nombreRancho = limpio.config.nombreRancho || this.ranchoActual.nombre;
+    }
+    this.state = limpio;
+    if (marcarAntiguos) localStorage.setItem(CLAVE_ANTIGUOS_SUBIDOS, new Date().toISOString());
     this.saveLocal();
   },
 
-  cerrarSesionPrivada() {
-    this.saveAuthConfig({ rememberSession: false });
-    this.activarModoDemo();
-  },
-
-  loadCloudConfig() {
-    const raw = localStorage.getItem(STORAGE_KEY_CLOUD);
-    if (raw) {
-      try {
-        this.cloudConfig = { ...this.cloudConfig, ...JSON.parse(raw) };
-      } catch (e) {
-        console.warn('Error cargando config de nube', e);
-      }
-    }
-  },
-
-  saveCloudConfig(newCfg) {
-    this.cloudConfig = { ...this.cloudConfig, ...newCfg };
-    localStorage.setItem(STORAGE_KEY_CLOUD, JSON.stringify(this.cloudConfig));
-    this.updateNetworkStatus();
-    this.notify();
-  },
-
   updateNetworkStatus() {
+    const c = this.cloudConfig;
     if (this.sessionMode === 'DEMO') {
-      this.cloudConfig.statusText = 'Vista Portafolio (Datos Demo)';
+      c.statusText = 'Vista Portafolio (Datos Demo)';
+      c.enabled = false;
+      c.pendingSync = false;
       this.notify();
       return;
     }
-
-    const isOnline = navigator.onLine;
-    if (!isOnline) {
-      this.cloudConfig.statusText = 'Sin señal en corral (Guardado local)';
-    } else if (this.cloudConfig.enabled && this.cloudConfig.provider === 'firebase' && !this.estaConectadoNube()) {
-      this.cloudConfig.statusText = 'Inicia sesión en la nube para sincronizar';
-    } else if (this.cloudConfig.enabled) {
-      this.cloudConfig.statusText = this.cloudConfig.pendingSync
-        ? 'Sincronizando con la nube...'
-        : 'Rancho privado sincronizado';
+    const pendientes = this.contarPendientes();
+    const rechazos = Object.keys(this.rechazos || {}).length;
+    c.enabled = true;
+    c.pendingSync = pendientes > 0 || !!this._sincronizando;
+    if (!navigator.onLine) {
+      c.statusText = pendientes ? `Sin señal · ${pendientes} cambio(s) guardados en el dispositivo` : 'Sin señal · datos guardados en el dispositivo';
+    } else if (this.sesionVencida) {
+      c.statusText = 'Sesión vencida · inicia sesión para sincronizar';
+    } else if (this._sincronizando) {
+      c.statusText = 'Sincronizando…';
+    } else if (this.syncError) {
+      c.statusText = `No se pudo sincronizar: ${this.syncError}`;
+    } else if (rechazos) {
+      c.statusText = `${rechazos} cambio(s) no se pudieron subir · revisa`;
+    } else if (pendientes) {
+      c.statusText = `${pendientes} cambio(s) por subir`;
     } else {
-      this.cloudConfig.statusText = 'Sesión privada activa (Configurar nube)';
+      c.statusText = this.ultimaSync ? 'Rancho sincronizado' : 'Conectando con el servidor…';
     }
     this.notify();
   },
@@ -499,282 +690,13 @@ window.RanchoDB = {
 
   saveLocal() {
     this.state.config.updatedAt = new Date().toISOString();
-    const targetKey = this.sessionMode === 'REAL' ? STORAGE_KEY_REAL : STORAGE_KEY_DEMO;
-    this._guardarSeguro(targetKey, JSON.stringify(this.state));
-
-    // Solo sincronizar con la nube real si estamos en la sesión privada REAL del propietario
-    if (this.sessionMode === 'REAL' && this.cloudConfig.enabled) {
-      this.cloudConfig.pendingSync = true;
-      localStorage.setItem(STORAGE_KEY_CLOUD, JSON.stringify(this.cloudConfig));
-      if (navigator.onLine) {
-        this.syncToCloud();
-      }
+    if (this.sessionMode === 'REAL') {
+      this._persistir();
+      this._programarSync();
+    } else {
+      this._guardarSeguro(STORAGE_KEY_DEMO, JSON.stringify(this.state));
     }
     this.updateNetworkStatus();
-    this.notify();
-  },
-
-  /* ------------------------------------------------------------------
-   * FIREBASE AUTHENTICATION (REST, sin SDK)
-   * ------------------------------------------------------------------ */
-  loadCloudAuth() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY_CLOUD_AUTH);
-      if (raw) this.cloudAuth = { ...this.cloudAuth, ...JSON.parse(raw) };
-    } catch (e) {
-      console.warn('Error leyendo la sesión de la nube:', e);
-    }
-  },
-
-  _guardarCloudAuth() {
-    this._guardarSeguro(STORAGE_KEY_CLOUD_AUTH, JSON.stringify(this.cloudAuth));
-  },
-
-  estaConectadoNube() {
-    return !!(this.cloudAuth.refreshToken && this.cloudAuth.uid);
-  },
-
-  _mensajeErrorAuth(data) {
-    const codigo = String((data && data.error && data.error.message) || '').split(' ')[0];
-    const mensajes = {
-      EMAIL_NOT_FOUND: 'Correo o contraseña incorrectos.',
-      INVALID_PASSWORD: 'Correo o contraseña incorrectos.',
-      INVALID_LOGIN_CREDENTIALS: 'Correo o contraseña incorrectos.',
-      INVALID_EMAIL: 'El correo no tiene un formato válido.',
-      MISSING_PASSWORD: 'Escribe la contraseña.',
-      USER_DISABLED: 'Esta cuenta está deshabilitada en Firebase.',
-      TOO_MANY_ATTEMPTS_TRY_LATER: 'Demasiados intentos. Espera unos minutos y vuelve a intentar.',
-      OPERATION_NOT_ALLOWED:
-        'Activa el proveedor "Correo electrónico/contraseña" en Firebase › Authentication › Método de acceso.',
-      CONFIGURATION_NOT_FOUND:
-        'Firebase Authentication no está activado en este proyecto (Authentication › Comenzar).',
-      API_KEY_INVALID: 'La Web API Key no es válida para este proyecto.'
-    };
-    if (mensajes[codigo]) return mensajes[codigo];
-    if (/API key not valid/i.test(String(data && data.error && data.error.message))) {
-      return mensajes.API_KEY_INVALID;
-    }
-    return `No se pudo iniciar sesión (${codigo || 'error desconocido'}).`;
-  },
-
-  /** Inicia sesión con correo y contraseña. La contraseña solo se envía a Google, no se guarda. */
-  async iniciarSesionNube(email, password, apiKey) {
-    const key = String(apiKey || this.cloudConfig.apiKey || '').trim();
-    if (!key) throw new Error('Primero escribe la Web API Key de Firebase.');
-    if (!navigator.onLine) throw new Error('Necesitas internet para iniciar sesión en la nube.');
-
-    const res = await fetch(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: String(email || '').trim(), password, returnSecureToken: true })
-      }
-    );
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(this._mensajeErrorAuth(data));
-
-    this.cloudAuth = {
-      email: data.email,
-      uid: data.localId,
-      idToken: data.idToken,
-      refreshToken: data.refreshToken,
-      expiresAt: Date.now() + (parseInt(data.expiresIn, 10) || 3600) * 1000
-    };
-    this._guardarCloudAuth();
-    this.updateNetworkStatus();
-    return { email: data.email, uid: data.localId };
-  },
-
-  cerrarSesionNube() {
-    this.cloudAuth = { email: '', uid: '', idToken: '', refreshToken: '', expiresAt: 0 };
-    localStorage.removeItem(STORAGE_KEY_CLOUD_AUTH);
-    this.updateNetworkStatus();
-  },
-
-  /** Devuelve un ID token vigente; lo renueva con el token de refresco cuando caduca (cada hora). */
-  async _obtenerTokenNube() {
-    if (!this.estaConectadoNube()) return null;
-    if (this.cloudAuth.idToken && Date.now() < this.cloudAuth.expiresAt - 60000) {
-      return this.cloudAuth.idToken;
-    }
-    const key = this.cloudConfig.apiKey;
-    const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(this.cloudAuth.refreshToken)}`
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      if (res.status === 400) {
-        // Token revocado, usuario borrado/deshabilitado o contraseña cambiada
-        this.cerrarSesionNube();
-        throw new Error('La sesión de la nube expiró. Vuelve a iniciar sesión.');
-      }
-      throw new Error(`No se pudo renovar la sesión de la nube (${res.status}).`);
-    }
-    this.cloudAuth = {
-      ...this.cloudAuth,
-      idToken: data.id_token,
-      refreshToken: data.refresh_token || this.cloudAuth.refreshToken,
-      uid: data.user_id || this.cloudAuth.uid,
-      expiresAt: Date.now() + (parseInt(data.expires_in, 10) || 3600) * 1000
-    };
-    this._guardarCloudAuth();
-    return this.cloudAuth.idToken;
-  },
-
-  _rutasFirestore() {
-    const proyecto = encodeURIComponent(this.cloudConfig.projectId);
-    const docId = encodeURIComponent(this.cloudConfig.ranchoCode || 'RANCHO-FH-PRIVADO');
-    const coleccion = `https://firestore.googleapis.com/v1/projects/${proyecto}/databases/(default)/documents/ranchos`;
-    return { coleccion, documento: `${coleccion}/${docId}`, docId };
-  },
-
-  /** fetch a Firestore con el token del usuario (las reglas de seguridad lo exigen). */
-  async _fetchFirestore(url, opciones = {}) {
-    const token = await this._obtenerTokenNube();
-    if (!token) throw new Error('Inicia sesión en la nube (Dueños, fierros y nube › Cuenta de la nube).');
-    return fetch(url, {
-      ...opciones,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(opciones.headers || {}),
-        Authorization: `Bearer ${token}`
-      }
-    });
-  },
-
-  async syncToCloud() {
-    if (this.sessionMode !== 'REAL' || !this.cloudConfig.enabled || !navigator.onLine) {
-      return { ok: false, reason: 'not_real_or_offline' };
-    }
-
-    try {
-      const payload = JSON.stringify(this.state);
-
-      if (this.cloudConfig.provider === 'firebase' && this.cloudConfig.projectId) {
-        if (!this.estaConectadoNube()) {
-          this.cloudConfig.pendingSync = true;
-          this.updateNetworkStatus();
-          return { ok: false, reason: 'sin_sesion' };
-        }
-
-        const { coleccion, documento, docId } = this._rutasFirestore();
-        const campos = {
-          ranchoCode: { stringValue: this.cloudConfig.ranchoCode || 'RANCHO-FH-PRIVADO' },
-          updatedAt: { stringValue: new Date().toISOString() },
-          payloadJson: { stringValue: payload }
-        };
-        // Solo se actualizan estos campos: "miembros" nunca se toca desde la app
-        const mascara = Object.keys(campos)
-          .map((f) => `updateMask.fieldPaths=${f}`)
-          .join('&');
-
-        let res = await this._fetchFirestore(`${documento}?${mascara}&currentDocument.exists=true`, {
-          method: 'PATCH',
-          body: JSON.stringify({ fields: campos })
-        });
-
-        if (res.status === 404 || res.status === 403) {
-          // El documento aún no existe: se crea con esta cuenta como primer miembro.
-          // Si ya existe y la cuenta no es miembro, Firestore lo rechaza (403/409).
-          const crear = await this._fetchFirestore(`${coleccion}?documentId=${docId}`, {
-            method: 'POST',
-            body: JSON.stringify({
-              fields: {
-                ...campos,
-                miembros: { arrayValue: { values: [{ stringValue: this.cloudAuth.uid }] } }
-              }
-            })
-          });
-          if (crear.ok) {
-            res = crear;
-          } else if (crear.status === 409 || crear.status === 403) {
-            throw new Error(
-              'Tu cuenta no es miembro de este rancho en la nube. Pide que agreguen tu UID al campo "miembros".'
-            );
-          } else {
-            throw new Error(`Error Firestore (${crear.status})`);
-          }
-        }
-
-        if (!res.ok) {
-          throw new Error(`Error Firestore (${res.status})`);
-        }
-      } else if (this.cloudConfig.customEndpoint) {
-        const res = await fetch(this.cloudConfig.customEndpoint, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: payload
-        });
-        if (!res.ok) {
-          throw new Error(`Error Servidor Nube (${res.status})`);
-        }
-      } else {
-        return { ok: false, reason: 'missing_config' };
-      }
-
-      this.cloudConfig.pendingSync = false;
-      this.cloudConfig.lastSyncAt = new Date().toISOString();
-      localStorage.setItem(STORAGE_KEY_CLOUD, JSON.stringify(this.cloudConfig));
-      this.updateNetworkStatus();
-      return { ok: true };
-    } catch (err) {
-      console.warn('Pendiente subir a nube:', err);
-      this.cloudConfig.pendingSync = true;
-      this.cloudConfig.statusText = 'Guardado local (Pendiente subir a nube)';
-      this.notify();
-      return { ok: false, error: err.message };
-    }
-  },
-
-  async pullFromCloud() {
-    if (this.sessionMode !== 'REAL' || !this.cloudConfig.enabled || !navigator.onLine) {
-      return { ok: false };
-    }
-
-    try {
-      let remoteState = null;
-
-      if (this.cloudConfig.provider === 'firebase' && this.cloudConfig.projectId) {
-        if (!this.estaConectadoNube()) return { ok: false, reason: 'sin_sesion' };
-        const res = await this._fetchFirestore(this._rutasFirestore().documento, { method: 'GET' });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.fields && data.fields.payloadJson && data.fields.payloadJson.stringValue) {
-            remoteState = JSON.parse(data.fields.payloadJson.stringValue);
-          }
-        } else if (res.status !== 404 && res.status !== 403) {
-          // 404/403: el rancho todavía no existe en la nube (se creará al sincronizar)
-          throw new Error(`Error Firestore (${res.status})`);
-        }
-      } else if (this.cloudConfig.customEndpoint) {
-        const res = await fetch(this.cloudConfig.customEndpoint);
-        if (res.ok) {
-          remoteState = await res.json();
-        }
-      }
-
-      if (remoteState && Array.isArray(remoteState.animales)) {
-        const localTime = new Date(this.state.config?.updatedAt || 0).getTime();
-        const remoteTime = new Date(remoteState.config?.updatedAt || 0).getTime();
-
-        if (remoteTime >= localTime || this.state.animales.length === 0) {
-          this.state = this.normalizarEstado(remoteState, this.state.config);
-          this._guardarSeguro(STORAGE_KEY_REAL, JSON.stringify(this.state));
-          this.cloudConfig.lastSyncAt = new Date().toISOString();
-          this.cloudConfig.pendingSync = false;
-          localStorage.setItem(STORAGE_KEY_CLOUD, JSON.stringify(this.cloudConfig));
-          this.updateNetworkStatus();
-          return { ok: true, updated: true };
-        }
-      }
-      return { ok: true, updated: false };
-    } catch (err) {
-      console.warn('Error descargando desde la nube:', err);
-      return { ok: false, error: err.message };
-    }
   },
 
   guardarAnimal(animalData) {

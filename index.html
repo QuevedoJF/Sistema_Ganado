@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/styles.css?v=7" />
+  <link rel="stylesheet" href="./css/styles.css?v=8" />
   <!-- Librerías para exportar Tablas en Excel (.xlsx) y PDF -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -43,7 +43,7 @@
           <path d="M13 13l4 4" stroke-linecap="round" />
         </svg>
       </button>
-      <button type="button" class="btn-topbar-icon" onclick="RanchoApp.abrirModalConfiguracion()" aria-label="Dueños, fierros y nube">
+      <button type="button" class="btn-topbar-icon" onclick="RanchoApp.abrirModalConfiguracion()" aria-label="Rancho, dueños y cuenta">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
           <circle cx="7.5" cy="7" r="2.75" />
           <path d="M2.5 16c.6-2.6 2.6-4 5-4s4.4 1.4 5 4" stroke-linecap="round" />
@@ -138,18 +138,18 @@
         </nav>
       </div>
 
-      <!-- PIE DE BARRA LATERAL: ESTADO NUBE, MODO PORTAFOLIO Y CONFIGURACIÓN -->
+      <!-- PIE DE BARRA LATERAL: ESTADO DE SINCRONIZACIÓN, MODO PORTAFOLIO Y CONFIGURACIÓN -->
       <div class="sidebar-footer">
         <button id="btnSidebarConfig" class="btn-sidebar-config" onclick="RanchoApp.abrirModalConfiguracion()">
           <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8">
             <circle cx="10" cy="10" r="3" />
             <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
           </svg>
-          <span>Dueños, fierros y nube</span>
+          <span>Rancho, dueños y cuenta</span>
         </button>
 
         <div id="sessionModeBanner" class="session-mode-box mode-demo">
-          <div class="session-mode-header" onclick="if(window.RanchoDB.sessionMode === 'REAL') RanchoApp.abrirModalConfiguracion()" style="cursor: pointer;" title="Toca para configurar la sincronización de nube">
+          <div class="session-mode-header" onclick="if(window.RanchoDB.sessionMode === 'REAL') RanchoApp.abrirModalConfiguracion()" style="cursor: pointer;" title="Ver estado de la sincronización">
             <span id="syncStatusDot" class="sync-dot"></span>
             <span id="syncStatusText" class="sync-text">Vista Portafolio (Demo)</span>
           </div>
@@ -193,6 +193,9 @@
 
       <!-- CINTA DE RESUMEN (MÉTRICAS SOBRIAS Y ORDENADAS) -->
       <section id="kpiGrid" class="summary-strip" aria-label="Resumen de inventario"></section>
+
+      <!-- AVISOS DE SINCRONIZACIÓN (cambios rechazados, sesión vencida, solo lectura) -->
+      <section id="syncAvisos" class="sync-notice" hidden></section>
 
       <!-- AVISOS DE PENDIENTES EN CORRAL -->
       <section id="alertsPanel" class="alerts-bar" style="display:none;"></section>
@@ -573,34 +576,32 @@
   </div>
 
   <!-- =======================================================================
-       MODAL 5: CONFIGURACIÓN DE PROPIETARIOS Y BASE EN LA NUBE
+       MODAL 5: CONFIGURACIÓN DEL RANCHO, DUEÑOS, CUENTA Y MIEMBROS
        ======================================================================= -->
   <div id="modalConfig" class="modal-backdrop">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>Dueños, fierros y sincronización</h2>
+        <h2>Rancho, dueños y cuenta</h2>
         <button class="modal-close" onclick="RanchoApp.cerrarModal('modalConfig')" aria-label="Cerrar">&times;</button>
       </div>
 
       <form onsubmit="RanchoApp.guardarConfiguracion(event)">
         <div class="modal-body">
+          <p id="cfgAvisoSoloAdmin" class="config-note" hidden>
+            Solo un administrador del rancho puede cambiar el nombre, los dueños y los fierros.
+          </p>
+
           <div class="fieldset-card">
             <div class="fieldset-header">Datos del rancho</div>
             <div class="form-grid">
               <div class="form-group full-width">
                 <label class="form-label" for="cfgNombreRancho">Nombre del rancho</label>
-                <input type="text" id="cfgNombreRancho" class="form-input" placeholder="Ej. Rancho El Progreso" />
+                <input type="text" id="cfgNombreRancho" class="form-input" maxlength="120" placeholder="Ej. Rancho El Progreso" />
               </div>
 
               <div class="form-group">
                 <label class="form-label" for="cfgEdadDestete">Edad de aviso para destete (meses)</label>
                 <input type="number" id="cfgEdadDestete" class="form-input" min="4" max="14" />
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="cfgPinAcceso">Clave / PIN de acceso privado</label>
-                <input type="password" id="cfgPinAcceso" class="form-input input-mono" placeholder="Dejar vacío para no cambiarlo" autocomplete="new-password" minlength="4" />
-                <p class="form-help-text">Mínimo 4 caracteres. Se guarda cifrado (hash), nunca en texto plano.</p>
               </div>
             </div>
           </div>
@@ -608,7 +609,7 @@
           <div class="fieldset-card">
             <div class="fieldset-header fieldset-header-row">
               <span>Dueños y fierros en el terreno</span>
-              <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.agregarFilaFierro()">
+              <button type="button" id="btnAgregarDueno" class="btn btn-outline btn-sm" onclick="RanchoApp.agregarFilaFierro()">
                 <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke-linecap="round" /></svg>
                 Agregar dueño
               </button>
@@ -619,43 +620,24 @@
             <div id="cfgFierrosList" class="owners-list"></div>
           </div>
 
-          <div class="fieldset-card">
-            <div class="fieldset-header">Base de datos en la nube (Firebase Firestore)</div>
-            <div class="form-grid">
-              <div class="form-group full-width">
-                <label class="cloud-toggle-label">
-                  <input type="checkbox" id="cfgCloudEnabled" />
-                  <span>Activar sincronización automática en la nube</span>
-                </label>
-                <p class="form-help-text">
-                  Permite respaldar en tiempo real entre el celular y la computadora. Cuando trabajas en el corral sin internet, los cambios se guardan localmente y suben al recuperar señal.
-                </p>
-              </div>
+          <div class="fieldset-card" id="cfgSeccionCuenta">
+            <div class="fieldset-header">Tu cuenta</div>
+            <div id="cfgCuenta"></div>
+          </div>
 
-              <div class="form-group">
-                <label class="form-label" for="cfgFirebaseProjectId">Firebase Project ID</label>
-                <input type="text" id="cfgFirebaseProjectId" class="form-input input-mono" placeholder="mi-rancho-ganadero" />
-              </div>
+          <div class="fieldset-card" id="cfgSeccionSync">
+            <div class="fieldset-header">Sincronización con el servidor</div>
+            <div id="cfgSync"></div>
+          </div>
 
-              <div class="form-group">
-                <label class="form-label" for="cfgRanchoCode">Identificador del rancho</label>
-                <input type="text" id="cfgRanchoCode" class="form-input input-mono" placeholder="RANCHO-FH-01" />
-              </div>
-
-              <div class="form-group full-width">
-                <label class="form-label" for="cfgFirebaseApiKey">Firebase Web API Key</label>
-                <input type="text" id="cfgFirebaseApiKey" class="form-input input-mono" placeholder="AIzaSy..." />
-              </div>
-
-              <div class="form-group full-width">
-                <span class="form-label">Cuenta de la nube</span>
-                <div id="cfgCloudCuenta" class="cloud-account"></div>
-              </div>
-            </div>
+          <div class="fieldset-card" id="cfgSeccionMiembros">
+            <div class="fieldset-header">Personas con acceso al rancho</div>
+            <div id="cfgMiembros"></div>
           </div>
 
           <div class="fieldset-card">
             <div class="fieldset-header">Copia de seguridad y mantenimiento</div>
+            <div id="cfgDatosAntiguos"></div>
             <div class="backup-actions-row">
               <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.descargarRespaldoJSON()">
                 Descargar respaldo (.json)
@@ -667,7 +649,7 @@
               </label>
 
               <button type="button" class="btn btn-danger-soft btn-sm" onclick="RanchoApp.vaciarDatosDeEjemplo()">
-                Limpiar registros de prueba
+                Vaciar todos los registros
               </button>
             </div>
           </div>
@@ -675,66 +657,86 @@
 
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalConfig')">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Guardar configuración</button>
+          <button type="submit" id="btnGuardarConfig" class="btn btn-primary">Guardar cambios</button>
         </div>
       </form>
     </div>
   </div>
 
   <!-- =======================================================================
-       MODAL 6: ACCESO PRIVADO PARA PROPIETARIOS (SEPARADO DEL MODO PORTAFOLIO)
+       MODAL 6: INICIAR SESIÓN / CONFIGURACIÓN INICIAL DEL SERVIDOR
        ======================================================================= -->
   <div id="modalAccesoPrivado" class="modal-backdrop">
     <div class="modal-content" style="max-width:460px;">
       <div class="modal-header">
-        <h2>Acceso privado al rancho</h2>
+        <h2 id="accesoTitulo">Entrar al rancho privado</h2>
         <button class="modal-close" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')" aria-label="Cerrar">&times;</button>
       </div>
 
-      <form onsubmit="RanchoApp.confirmarAccesoPrivado(event)">
+      <!-- Iniciar sesión -->
+      <form id="formEntrar" onsubmit="RanchoApp.confirmarAccesoPrivado(event)">
         <div class="modal-body">
           <div class="fieldset-card">
-            <p id="accesoTextoAyuda" class="form-help-text" style="margin-top:0;margin-bottom:0.85rem;">
-              Actualmente estás en la <strong>Vista Portafolio (Datos de demostración)</strong> para que los visitantes de tu portafolio no vean la información real de tu rancho. Ingresa tu clave de propietario para cargar tu padrón privado.
+            <p class="form-help-text form-help-top">
+              Estás en la <strong>vista de portafolio</strong> (datos de ejemplo). Entra con tu cuenta para ver y registrar el ganado real del rancho.
             </p>
-
             <div class="form-grid">
               <div class="form-group full-width">
-                <label class="form-label" for="inputPinAcceso" id="labelPinAcceso">Clave / PIN del rancho *</label>
-                <input
-                  type="password"
-                  id="inputPinAcceso"
-                  class="form-input input-mono"
-                  placeholder="Ingresa tu clave"
-                  autocomplete="current-password"
-                  required
-                />
+                <label class="form-label" for="inputEmailAcceso">Correo</label>
+                <input type="email" id="inputEmailAcceso" class="form-input" autocomplete="username" required />
               </div>
-
-              <div class="form-group full-width" id="grupoPinConfirmar" style="display:none;">
-                <label class="form-label" for="inputPinConfirmar">Confirma tu nuevo PIN *</label>
-                <input
-                  type="password"
-                  id="inputPinConfirmar"
-                  class="form-input input-mono"
-                  placeholder="Repite el PIN"
-                  autocomplete="new-password"
-                />
-              </div>
-
               <div class="form-group full-width">
-                <label class="cloud-toggle-label">
-                  <input type="checkbox" id="inputRecordarSesion" />
-                  <span>Mantener sesión privada abierta en este dispositivo</span>
-                </label>
+                <label class="form-label" for="inputPasswordAcceso">Contraseña</label>
+                <input type="password" id="inputPasswordAcceso" class="form-input" autocomplete="current-password" required />
+              </div>
+            </div>
+            <p id="accesoAviso" class="config-note" hidden></p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')">Seguir en el portafolio</button>
+          <button type="submit" id="btnSubmitAcceso" class="btn btn-primary">Entrar</button>
+        </div>
+      </form>
+
+      <!-- Configuración inicial (solo la primera vez, cuando el servidor no tiene cuentas) -->
+      <form id="formConfigurar" onsubmit="RanchoApp.confirmarConfiguracionInicial(event)" hidden>
+        <div class="modal-body">
+          <div class="fieldset-card">
+            <p class="form-help-text form-help-top">
+              El servidor aún no tiene cuentas. Crea la cuenta de <strong>administrador</strong> del rancho. Necesitas el <strong>código de configuración</strong> (la variable <code>SETUP_TOKEN</code> que pusiste en Vercel).
+            </p>
+            <div class="form-grid">
+              <div class="form-group full-width">
+                <label class="form-label" for="setupToken">Código de configuración</label>
+                <input type="password" id="setupToken" class="form-input input-mono" autocomplete="off" required />
+              </div>
+              <div class="form-group full-width">
+                <label class="form-label" for="setupRancho">Nombre del rancho</label>
+                <input type="text" id="setupRancho" class="form-input" maxlength="120" placeholder="Ej. Rancho El Progreso" required />
+              </div>
+              <div class="form-group full-width">
+                <label class="form-label" for="setupNombre">Tu nombre</label>
+                <input type="text" id="setupNombre" class="form-input" maxlength="80" autocomplete="name" required />
+              </div>
+              <div class="form-group full-width">
+                <label class="form-label" for="setupEmail">Correo</label>
+                <input type="email" id="setupEmail" class="form-input" autocomplete="username" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="setupPassword">Contraseña (mínimo 8)</label>
+                <input type="password" id="setupPassword" class="form-input" minlength="8" autocomplete="new-password" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="setupPassword2">Repite la contraseña</label>
+                <input type="password" id="setupPassword2" class="form-input" minlength="8" autocomplete="new-password" required />
               </div>
             </div>
           </div>
         </div>
-
         <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')">Seguir en modo portafolio</button>
-          <button type="submit" class="btn btn-primary" id="btnSubmitAcceso">Desbloquear rancho real</button>
+          <button type="button" class="btn btn-outline" onclick="RanchoApp.cerrarModal('modalAccesoPrivado')">Cancelar</button>
+          <button type="submit" id="btnSubmitConfigurar" class="btn btn-primary">Crear cuenta y entrar</button>
         </div>
       </form>
     </div>
@@ -744,9 +746,11 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- SCRIPTS DEL SISTEMA -->
-  <script src="./js/validations.js?v=7"></script>
-  <script src="./js/db.js?v=7"></script>
-  <script src="./js/exports.js?v=7"></script>
-  <script src="./js/app.js?v=7"></script>
+  <script src="./js/validations.js?v=8"></script>
+  <script src="./js/almacen.js?v=8"></script>
+  <script src="./js/sync.js?v=8"></script>
+  <script src="./js/db.js?v=8"></script>
+  <script src="./js/exports.js?v=8"></script>
+  <script src="./js/app.js?v=8"></script>
 </body>
 </html>

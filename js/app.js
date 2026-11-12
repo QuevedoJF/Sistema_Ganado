@@ -4,7 +4,7 @@
 
 /**
  * Escapa texto para insertarlo de forma segura en plantillas HTML (innerHTML).
- * Todo dato capturado por el usuario, importado o descargado de la nube debe pasar por aquí.
+ * Todo dato capturado por el usuario, importado o descargado del servidor debe pasar por aquí.
  */
 /** Sello visual de un fierro con el color de su dueño. */
 function sello(codigo, claseExtra = '') {
@@ -38,14 +38,13 @@ window.RanchoApp = {
     sexo: 'Hembra'
   },
 
-  init() {
-    window.RanchoDB.init();
+  async init() {
     window.RanchoDB.subscribe(() => {
       this.renderTodo();
     });
-
     this.registrarServiceWorker();
     this.registrarAtajosModales();
+    await window.RanchoDB.init();
     this.renderTodo();
   },
 
@@ -174,6 +173,7 @@ window.RanchoApp = {
 
   renderTodo() {
     this.renderEncabezadoYNube();
+    this.renderAvisosSync();
     this.renderBotonesFierro();
     this.renderKPIs();
     this.renderAlertasCorral();
@@ -209,7 +209,9 @@ window.RanchoApp = {
     }
     if (btnSwitch) {
       btnSwitch.textContent = esReal
-        ? 'Salir a vista portafolio'
+        ? 'Ver vista portafolio'
+        : window.RanchoDB.sesion
+        ? 'Volver a mi rancho'
         : 'Entrar al rancho privado';
     }
 
@@ -222,6 +224,7 @@ window.RanchoApp = {
       mobDot.className = 'sync-dot';
       if (!esReal) mobDot.classList.add('demo');
       else if (!navigator.onLine) mobDot.classList.add('offline');
+      else if (window.RanchoDB.sesionVencida || window.RanchoDB.syncError) mobDot.classList.add('offline');
       else if (cloudCfg.enabled && !cloudCfg.pendingSync) mobDot.classList.add('cloud');
     }
 
@@ -231,6 +234,8 @@ window.RanchoApp = {
       if (!esReal) {
         syncDot.classList.add('demo');
       } else if (!navigator.onLine) {
+        syncDot.classList.add('offline');
+      } else if (window.RanchoDB.sesionVencida || window.RanchoDB.syncError) {
         syncDot.classList.add('offline');
       } else if (cloudCfg.enabled && !cloudCfg.pendingSync) {
         syncDot.classList.add('cloud');
@@ -1295,6 +1300,7 @@ window.RanchoApp = {
    * MODAL ALTA / EDICIÓN DE ANIMAL
    */
   abrirModalAnimal(animalId = null, prefillMadre = null) {
+    if (!this.exigirEdicion()) return;
     const modal = document.getElementById('modalAnimal');
     if (!modal) return;
 
@@ -1541,6 +1547,7 @@ window.RanchoApp = {
 
   guardarFormularioAnimal(event) {
     event.preventDefault();
+    if (!this.exigirEdicion()) return;
     if (!this.validarFormularioEnVivo()) {
       this.mostrarToast(
         'Corrige el número o arete repetido antes de guardar el registro.',
@@ -1632,6 +1639,7 @@ window.RanchoApp = {
 
   confirmarBajaAnimal(event) {
     event.preventDefault();
+    if (!this.exigirEdicion()) return;
     const animalId = document.getElementById('bajaAnimalId').value;
     const tipoBaja = document.getElementById('bajaTipo').value;
     const fechaBaja = document.getElementById('bajaFecha').value;
@@ -1665,6 +1673,7 @@ window.RanchoApp = {
   },
 
   confirmarReactivar(animalId) {
+    if (!this.exigirEdicion()) return;
     const animal = window.RanchoDB.state.animales.find((a) => a.id === animalId);
     if (!animal) return;
 
@@ -1852,6 +1861,7 @@ window.RanchoApp = {
   },
 
   eliminarRegistroDefinitivo(animalId) {
+    if (!this.exigirEdicion()) return;
     if (
       !confirm(
         '¿Confirmas eliminar este registro permanentemente? Si el animal se vendió o murió, usa "Vender / Baja" para conservar su historial.'
@@ -1868,6 +1878,7 @@ window.RanchoApp = {
    * MODAL DE SANIDAD, VACUNACIÓN Y PESAJES
    */
   abrirModalSanidad() {
+    if (!this.exigirEdicion()) return;
     const select = document.getElementById('sanidadAlcance');
     const activos = window.RanchoDB.state.animales.filter((a) => a.estatus === 'Activo');
 
@@ -1904,6 +1915,7 @@ window.RanchoApp = {
 
   guardarEventoSanidad(event) {
     event.preventDefault();
+    if (!this.exigirEdicion()) return;
     const alcance = document.getElementById('sanidadAlcance').value;
     const fecha = document.getElementById('sanidadFecha').value;
     const tipo = document.getElementById('sanidadTipo').value;
@@ -1953,156 +1965,217 @@ window.RanchoApp = {
   },
 
   borrarEventoSanitario(id) {
+    if (!this.exigirEdicion()) return;
     window.RanchoDB.eliminarEventoSanitario(id);
     this.mostrarToast('Registro sanitario eliminado.');
   },
 
   /**
-   * GESTIÓN DE ACCESO PRIVADO VS VISTA PORTAFOLIO (DEMO)
+   * ACCESO AL RANCHO PRIVADO (cuenta del servidor) Y VISTA PORTAFOLIO
    */
-  accionBotonSesion() {
+  async accionBotonSesion() {
     this.toggleSidebar(false);
-    if (window.RanchoDB.sessionMode === 'REAL') {
-      window.RanchoDB.cerrarSesionPrivada();
-      this.mostrarToast('Sesión privada cerrada. Ahora se muestran solo los datos de demostración.');
-    } else {
-      const creando = !window.RanchoDB.tienePinConfigurado();
-      document.getElementById('inputPinAcceso').value = '';
-      document.getElementById('inputPinConfirmar').value = '';
-      document.getElementById('inputRecordarSesion').checked = false;
-      document.getElementById('grupoPinConfirmar').style.display = creando ? '' : 'none';
-      document.getElementById('inputPinConfirmar').required = creando;
-      document.getElementById('labelPinAcceso').textContent = creando
-        ? 'Crea tu PIN de propietario (mínimo 4 caracteres) *'
-        : 'Clave / PIN del rancho *';
-      document.getElementById('inputPinAcceso').placeholder = creando
-        ? 'Nuevo PIN'
-        : 'Ingresa tu clave';
-      document.getElementById('btnSubmitAcceso').textContent = creando
-        ? 'Crear PIN y entrar'
-        : 'Desbloquear rancho real';
-      document.getElementById('modalAccesoPrivado').classList.add('open');
-      setTimeout(() => {
-        document.getElementById('inputPinAcceso').focus();
-      }, 60);
+    const db = window.RanchoDB;
+    if (db.sessionMode === 'REAL') {
+      db.verPortafolio();
+      this.mostrarToast('Vista de portafolio: se muestran solo datos de ejemplo. Tu sesión sigue abierta.');
+      return;
+    }
+    if (db.sesion) {
+      await db.volverAlRancho();
+      this.mostrarToast(`Rancho privado: ${db.ranchoActual.nombre}`);
+      return;
+    }
+    await this.mostrarFormularioAcceso();
+  },
+
+  /** Abre el inicio de sesión, o la configuración inicial si el servidor aún no tiene cuentas. */
+  async mostrarFormularioAcceso(aviso = '') {
+    const modal = document.getElementById('modalAccesoPrivado');
+    const formEntrar = document.getElementById('formEntrar');
+    const formConfigurar = document.getElementById('formConfigurar');
+    const avisoEl = document.getElementById('accesoAviso');
+    formEntrar.reset();
+    formConfigurar.reset();
+    formEntrar.hidden = false;
+    formConfigurar.hidden = true;
+    document.getElementById('accesoTitulo').textContent = 'Entrar al rancho privado';
+    avisoEl.hidden = !aviso;
+    avisoEl.textContent = aviso;
+    modal.classList.add('open');
+
+    try {
+      const estado = await window.RanchoDB.estadoServidor();
+      if (estado.necesitaConfiguracion) {
+        formEntrar.hidden = true;
+        formConfigurar.hidden = false;
+        document.getElementById('accesoTitulo').textContent = 'Configuración inicial del rancho';
+        setTimeout(() => document.getElementById('setupToken').focus(), 60);
+        return;
+      }
+    } catch (err) {
+      if (!aviso) {
+        avisoEl.hidden = false;
+        avisoEl.textContent = err.sinRed
+          ? 'Sin conexión: necesitas internet para iniciar sesión.'
+          : err.message;
+      }
+    }
+    setTimeout(() => document.getElementById('inputEmailAcceso').focus(), 60);
+  },
+
+  async _conBotonOcupado(boton, texto, fn) {
+    const original = boton.textContent;
+    boton.disabled = true;
+    boton.textContent = texto;
+    try {
+      return await fn();
+    } finally {
+      boton.disabled = false;
+      boton.textContent = original;
     }
   },
 
   async confirmarAccesoPrivado(event) {
     event.preventDefault();
-    const pin = document.getElementById('inputPinAcceso').value.trim();
-    const recordar = document.getElementById('inputRecordarSesion').checked;
-    const db = window.RanchoDB;
-    let pinDebil = false;
-
+    const email = document.getElementById('inputEmailAcceso').value.trim();
+    const password = document.getElementById('inputPasswordAcceso').value;
     try {
-      if (!db.tienePinConfigurado()) {
-        const confirmacion = document.getElementById('inputPinConfirmar').value.trim();
-        if (pin.length < 4) {
-          this.mostrarToast('El PIN debe tener al menos 4 caracteres.', 'error');
-          return;
-        }
-        if (pin !== confirmacion) {
-          this.mostrarToast('Los PIN no coinciden.', 'error');
-          return;
-        }
-        await db.establecerPin(pin);
-      } else {
-        const res = await db.verificarPinPropietario(pin);
-        if (!res.ok) {
-          this.mostrarToast('Clave / PIN incorrecto. Se mantiene la vista de portafolio.', 'error');
-          return;
-        }
-        pinDebil = !!res.pinDebil;
-      }
+      await this._conBotonOcupado(document.getElementById('btnSubmitAcceso'), 'Entrando…', () =>
+        window.RanchoDB.entrar(email, password)
+      );
     } catch (err) {
-      this.mostrarToast(err.message || 'No se pudo verificar el PIN.', 'error');
+      this.mostrarToast(err.message || 'No se pudo iniciar sesión.', 'error');
       return;
     }
-
-    db.saveAuthConfig({ rememberSession: recordar });
-    db.activarModoReal();
     this.cerrarModal('modalAccesoPrivado');
-    if (pinDebil) {
-      this.mostrarToast(
-        'Estás usando el PIN por defecto (1234). Cámbialo en "Nube & Dueños" para proteger tu rancho.',
-        'error'
+    this.mostrarToast(`Bienvenido. Rancho: ${window.RanchoDB.ranchoActual.nombre}`);
+    this.ofrecerSubirDatosAntiguos();
+  },
+
+  async confirmarConfiguracionInicial(event) {
+    event.preventDefault();
+    const val = (id) => document.getElementById(id).value;
+    if (val('setupPassword') !== val('setupPassword2')) {
+      this.mostrarToast('Las contraseñas no coinciden.', 'error');
+      return;
+    }
+    try {
+      await this._conBotonOcupado(document.getElementById('btnSubmitConfigurar'), 'Creando…', () =>
+        window.RanchoDB.configurarInicial({
+          token: val('setupToken').trim(),
+          nombreRancho: val('setupRancho').trim(),
+          nombre: val('setupNombre').trim(),
+          email: val('setupEmail').trim(),
+          password: val('setupPassword')
+        })
       );
-    } else {
-      this.mostrarToast('Acceso concedido al padrón privado del rancho.');
+    } catch (err) {
+      this.mostrarToast(err.message || 'No se pudo completar la configuración.', 'error');
+      return;
+    }
+    this.cerrarModal('modalAccesoPrivado');
+    this.mostrarToast('Cuenta de administrador creada. Ya estás dentro de tu rancho.');
+    this.ofrecerSubirDatosAntiguos();
+  },
+
+  /** Si este navegador tiene datos de la versión anterior (con PIN), ofrece subirlos al servidor. */
+  ofrecerSubirDatosAntiguos() {
+    const db = window.RanchoDB;
+    const antiguos = db.datosAntiguosDelDispositivo();
+    if (!antiguos || !db.puedeEditar()) return;
+    const n = antiguos.animales.length;
+    if (
+      confirm(
+        `Este dispositivo tiene ${n} animales guardados de la versión anterior (con PIN).\n\n` +
+          `¿Subirlos ahora al servidor? Los registros del servidor se reemplazarán por estos.\n` +
+          `(Si eliges "Cancelar" podrás hacerlo después desde "Rancho, dueños y cuenta".)`
+      )
+    ) {
+      this.subirDatosAntiguos(true);
     }
   },
 
+  subirDatosAntiguos(yaConfirmado = false) {
+    const db = window.RanchoDB;
+    const antiguos = db.datosAntiguosDelDispositivo();
+    if (!antiguos) return;
+    if (!this.exigirEdicion()) return;
+    if (
+      !yaConfirmado &&
+      !confirm(`¿Subir los ${antiguos.animales.length} animales de la versión anterior? Los registros actuales se reemplazarán.`)
+    ) {
+      return;
+    }
+    this.descargarRespaldoJSON('Antes_de_subir_datos_anteriores');
+    db.importarEstado(antiguos, { marcarAntiguos: true });
+    this.cerrarModal('modalConfig');
+    this.mostrarToast('Subiendo los datos de la versión anterior al servidor…');
+  },
+
+  /** true si la cuenta puede modificar datos; si no, avisa. */
+  exigirEdicion() {
+    if (window.RanchoDB.puedeEditar()) return true;
+    this.mostrarToast('Tu cuenta es de solo lectura en este rancho.', 'error');
+    return false;
+  },
+
   /**
-   * MODAL DE CONFIGURACIÓN DEL RANCHO Y NUBE
+   * MODAL DE CONFIGURACIÓN: RANCHO, DUEÑOS, CUENTA, MIEMBROS Y SINCRONIZACIÓN
    */
-  abrirModalConfiguracion() {
+  abrirModalConfiguracion(seccion = null) {
     this.toggleSidebar(false);
-    if (window.RanchoDB.sessionMode !== 'REAL') {
-      this.mostrarToast('Desbloquea primero el acceso privado para configurar propietarios y nube.');
+    const db = window.RanchoDB;
+    if (db.sessionMode !== 'REAL') {
+      this.mostrarToast('Entra a tu rancho privado para configurar los dueños y la cuenta.');
       this.accionBotonSesion();
       return;
     }
 
-    const { config } = window.RanchoDB.state;
-    const cloud = window.RanchoDB.cloudConfig;
-
+    const { config } = db.state;
+    const admin = db.esAdmin();
     document.getElementById('cfgNombreRancho').value = config.nombreRancho || '';
-    this.renderListaFierrosConfig(window.RanchoDB.getFierros());
     document.getElementById('cfgEdadDestete').value = config.edadDesteteMeses || 7;
-    document.getElementById('cfgPinAcceso').value = ''; // el PIN nunca se muestra
+    this.renderListaFierrosConfig(db.getFierros());
 
-    document.getElementById('cfgCloudEnabled').checked = !!cloud.enabled;
-    document.getElementById('cfgFirebaseProjectId').value = cloud.projectId || '';
-    document.getElementById('cfgFirebaseApiKey').value = cloud.apiKey || '';
-    document.getElementById('cfgRanchoCode').value = cloud.ranchoCode || 'RANCHO-FH-PRIVADO';
-    this.renderCuentaNube();
+    // Solo el admin cambia nombre, destete, dueños y fierros
+    document.getElementById('cfgAvisoSoloAdmin').hidden = admin;
+    document.getElementById('btnGuardarConfig').hidden = !admin;
+    document.getElementById('btnAgregarDueno').hidden = !admin;
+    ['cfgNombreRancho', 'cfgEdadDestete'].forEach((id) => (document.getElementById(id).disabled = !admin));
+    document.querySelectorAll('#cfgFierrosList input, #cfgFierrosList select, #cfgFierrosList button').forEach((el) => {
+      el.disabled = el.disabled || !admin;
+    });
 
+    this.renderCuentaConfig();
+    this.renderSyncConfig();
+    this.renderMiembrosConfig();
+    this.renderDatosAntiguosConfig();
     document.getElementById('modalConfig').classList.add('open');
+    if (seccion) {
+      const el = document.getElementById(seccion);
+      if (el) setTimeout(() => el.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+    }
   },
 
   async guardarConfiguracion(event) {
     event.preventDefault();
-
-    const nuevoPin = document.getElementById('cfgPinAcceso').value.trim();
-    if (nuevoPin && nuevoPin.length < 4) {
-      this.mostrarToast('El PIN debe tener al menos 4 caracteres.', 'error');
+    const db = window.RanchoDB;
+    if (!db.esAdmin()) {
+      this.cerrarModal('modalConfig');
       return;
     }
-
     try {
-      window.RanchoDB.guardarFierros(this.leerListaFierrosConfig());
+      db.guardarFierros(this.leerListaFierrosConfig());
     } catch (err) {
       this.mostrarToast(err.message, 'error');
       return;
     }
-
-    if (nuevoPin) {
-      try {
-        await window.RanchoDB.establecerPin(nuevoPin);
-      } catch (err) {
-        this.mostrarToast(err.message || 'No se pudo guardar el PIN.', 'error');
-        return;
-      }
-    }
-
-    window.RanchoDB.state.config.nombreRancho =
-      document.getElementById('cfgNombreRancho').value.trim() || 'Rancho Ganadero F & H';
-    window.RanchoDB.state.config.edadDesteteMeses =
-      parseInt(document.getElementById('cfgEdadDestete').value, 10) || 7;
-
-    window.RanchoDB.saveCloudConfig({
-      enabled: document.getElementById('cfgCloudEnabled').checked,
-      projectId: document.getElementById('cfgFirebaseProjectId').value.trim(),
-      apiKey: document.getElementById('cfgFirebaseApiKey').value.trim(),
-      ranchoCode: document.getElementById('cfgRanchoCode').value.trim() || 'RANCHO-FH-PRIVADO'
-    });
-
-    window.RanchoDB.saveLocal();
+    db.state.config.nombreRancho = document.getElementById('cfgNombreRancho').value.trim() || 'Mi rancho';
+    db.state.config.edadDesteteMeses = parseInt(document.getElementById('cfgEdadDestete').value, 10) || 7;
+    db.saveLocal();
     this.cerrarModal('modalConfig');
-    this.mostrarToast(
-      nuevoPin ? 'Configuración y PIN actualizados.' : 'Configuración privada actualizada.'
-    );
+    this.mostrarToast('Cambios guardados. Se subirán al servidor automáticamente.');
   },
 
   /** Pinta el editor de dueños/fierros en la configuración (solo DOM; se guarda al enviar). */
@@ -2196,112 +2269,302 @@ window.RanchoApp = {
     row.className = `owner-row tono-${tono}`;
   },
 
-  /** Muestra el formulario de inicio de sesión o la cuenta conectada (con su UID para las reglas). */
-  renderCuentaNube() {
-    const cont = document.getElementById('cfgCloudCuenta');
+  /* ---------------------------------------------------------------- cuenta */
+  renderCuentaConfig() {
+    const cont = document.getElementById('cfgCuenta');
     if (!cont) return;
     const db = window.RanchoDB;
-    if (db.estaConectadoNube()) {
-      cont.innerHTML = `
-        <div class="cloud-account-on">
-          <div class="cloud-account-who">
-            <span class="sync-dot cloud" aria-hidden="true"></span>
-            <span>Conectado como <strong>${esc(db.cloudAuth.email)}</strong></span>
-          </div>
-          <div class="cloud-uid">
-            <span class="form-label">Tu UID (para el campo «miembros»)</span>
-            <div class="cloud-uid-row">
-              <code id="cfgCloudUid">${esc(db.cloudAuth.uid)}</code>
-              <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.copiarUidNube()">Copiar</button>
-            </div>
-          </div>
-          <div class="cloud-account-actions">
-            <button type="button" class="btn btn-primary btn-sm" onclick="RanchoApp.sincronizarAhoraConNube()">Sincronizar ahora</button>
-            <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarSesionNubeDesdeForm()">Cerrar sesión de la nube</button>
-          </div>
-        </div>`;
-    } else {
-      cont.innerHTML = `
-        <div class="cloud-login">
-          <input type="email" id="cfgCloudEmail" class="form-input" placeholder="correo@ejemplo.com" autocomplete="username" aria-label="Correo de la cuenta de Firebase" />
-          <input type="password" id="cfgCloudPassword" class="form-input" placeholder="Contraseña" autocomplete="current-password" aria-label="Contraseña de la cuenta de Firebase"
-            onkeydown="if (event.key === 'Enter') { event.preventDefault(); RanchoApp.iniciarSesionNubeDesdeForm(); }" />
-          <button type="button" id="btnCloudLogin" class="btn btn-primary" onclick="RanchoApp.iniciarSesionNubeDesdeForm()">Iniciar sesión</button>
+    const u = (db.sesion && db.sesion.usuario) || {};
+    const nombresRol = { admin: 'Administrador', editor: 'Editor', lector: 'Solo lectura' };
+    cont.innerHTML = `
+      <div class="account-summary">
+        <div>
+          <div class="account-name">${esc(u.nombre || u.email || '')}</div>
+          <div class="account-meta">${esc(u.email || '')} · ${esc(nombresRol[db.rol()] || db.rol())} en ${esc(db.ranchoActual ? db.ranchoActual.nombre : '')}</div>
         </div>
-        <p class="form-help-text">Usa una cuenta creada en Firebase › Authentication › Usuarios. La contraseña no se guarda en este dispositivo.</p>`;
-    }
+        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarSesion()">Cerrar sesión</button>
+      </div>
+      <details class="account-password">
+        <summary>Cambiar contraseña</summary>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="cfgPassActual">Contraseña actual</label>
+            <input type="password" id="cfgPassActual" class="form-input" autocomplete="current-password" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="cfgPassNueva">Nueva contraseña (mínimo 8)</label>
+            <input type="password" id="cfgPassNueva" class="form-input" autocomplete="new-password" minlength="8" />
+          </div>
+        </div>
+        <button type="button" id="btnCambiarPass" class="btn btn-outline btn-sm" onclick="RanchoApp.cambiarContrasena()">Cambiar contraseña</button>
+        <p class="form-help-text">Al cambiarla se cierran las sesiones de tus otros dispositivos.</p>
+      </details>`;
   },
 
-  async iniciarSesionNubeDesdeForm() {
-    const email = document.getElementById('cfgCloudEmail').value.trim();
-    const password = document.getElementById('cfgCloudPassword').value;
-    const apiKey = document.getElementById('cfgFirebaseApiKey').value.trim();
-    if (!email || !password) {
-      this.mostrarToast('Escribe el correo y la contraseña de la cuenta de la nube.', 'error');
+  async cambiarContrasena() {
+    const actual = document.getElementById('cfgPassActual').value;
+    const nueva = document.getElementById('cfgPassNueva').value;
+    if (nueva.length < 8) {
+      this.mostrarToast('La nueva contraseña debe tener al menos 8 caracteres.', 'error');
       return;
     }
-    const boton = document.getElementById('btnCloudLogin');
-    boton.disabled = true;
-    boton.textContent = 'Conectando…';
     try {
-      // Guardar primero el proyecto y la API Key escritos en el formulario
-      window.RanchoDB.saveCloudConfig({
-        projectId: document.getElementById('cfgFirebaseProjectId').value.trim(),
-        apiKey,
-        ranchoCode: document.getElementById('cfgRanchoCode').value.trim() || 'RANCHO-FH-PRIVADO'
-      });
-      const cuenta = await window.RanchoDB.iniciarSesionNube(email, password, apiKey);
-      this.renderCuentaNube();
-      this.mostrarToast(`Sesión de la nube iniciada: ${cuenta.email}`);
-    } catch (err) {
-      this.mostrarToast(err.message || 'No se pudo iniciar sesión en la nube.', 'error');
-      boton.disabled = false;
-      boton.textContent = 'Iniciar sesión';
-    }
-  },
-
-  cerrarSesionNubeDesdeForm() {
-    window.RanchoDB.cerrarSesionNube();
-    this.renderCuentaNube();
-    this.mostrarToast('Sesión de la nube cerrada en este dispositivo.');
-  },
-
-  async copiarUidNube() {
-    const uid = window.RanchoDB.cloudAuth.uid;
-    try {
-      await navigator.clipboard.writeText(uid);
-      this.mostrarToast('UID copiado.');
-    } catch (e) {
-      const el = document.getElementById('cfgCloudUid');
-      if (el) window.getSelection().selectAllChildren(el);
-      this.mostrarToast('Selecciona y copia el UID manualmente.', 'error');
-    }
-  },
-
-  async sincronizarAhoraConNube() {
-    if (!window.RanchoDB.cloudConfig.enabled) {
-      this.mostrarToast('Activa primero la sincronización en la nube y guarda la configuración.', 'error');
-      this.abrirModalConfiguracion();
-      return;
-    }
-    if (window.RanchoDB.cloudConfig.provider === 'firebase' && !window.RanchoDB.estaConectadoNube()) {
-      this.mostrarToast('Inicia sesión en la nube para sincronizar.', 'error');
-      this.abrirModalConfiguracion();
-      return;
-    }
-    this.mostrarToast('Sincronizando con la nube...');
-    await window.RanchoDB.pullFromCloud();
-    const res = await window.RanchoDB.syncToCloud();
-    if (res.ok) {
-      this.mostrarToast('Sincronización en la nube completada.');
-    } else {
-      this.mostrarToast(
-        res.error
-          ? `Datos guardados en el dispositivo. ${res.error}`
-          : 'Datos guardados en el dispositivo. Verifica el Project ID de Firebase o tu conexión.',
-        'error'
+      await this._conBotonOcupado(document.getElementById('btnCambiarPass'), 'Cambiando…', () =>
+        window.RanchoDB.cambiarContrasena(actual, nueva)
       );
+      document.getElementById('cfgPassActual').value = '';
+      document.getElementById('cfgPassNueva').value = '';
+      this.mostrarToast('Contraseña cambiada. Las sesiones de tus otros dispositivos se cerraron.');
+    } catch (err) {
+      this.mostrarToast(err.message, 'error');
     }
+  },
+
+  async cerrarSesion() {
+    const db = window.RanchoDB;
+    try {
+      await db.salir();
+    } catch (err) {
+      if (err.codigo !== 'PENDIENTES') {
+        this.mostrarToast(err.message, 'error');
+        return;
+      }
+      if (
+        !confirm(
+          `${err.message}\n\nSi cierras sesión ahora esos cambios se perderán en este dispositivo. ` +
+            `Conéctate a internet y espera a que se sincronicen, o pulsa "Aceptar" para cerrar de todos modos.`
+        )
+      ) {
+        return;
+      }
+      await db.salir({ forzar: true });
+    }
+    this.cerrarModal('modalConfig');
+    this.mostrarToast('Sesión cerrada. Los datos del rancho se borraron de este dispositivo.');
+  },
+
+  /* ---------------------------------------------------------------- sincronización */
+  renderSyncConfig() {
+    const cont = document.getElementById('cfgSync');
+    if (!cont) return;
+    const db = window.RanchoDB;
+    const pendientes = db.contarPendientes();
+    const rechazos = db.listaRechazos();
+    const ultima = db.ultimaSync
+      ? new Date(db.ultimaSync).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })
+      : 'todavía no';
+    cont.innerHTML = `
+      <div class="sync-summary">
+        <span class="sync-dot ${!navigator.onLine ? 'offline' : pendientes || rechazos.length ? '' : 'cloud'}" aria-hidden="true"></span>
+        <span>${esc(db.cloudConfig.statusText)}</span>
+      </div>
+      <p class="form-help-text">Última sincronización: ${esc(ultima)}. Puedes trabajar sin señal: los cambios se guardan en el dispositivo y se suben solos al volver la conexión.</p>
+      ${
+        rechazos.length
+          ? `<div class="rejected-list">
+              <p class="rejected-title">Estos cambios no se pudieron subir:</p>
+              <ul>
+                ${rechazos
+                  .map(
+                    (r) => `<li>
+                      <div><strong>${esc(r.titulo)}</strong><span>${esc(r.motivo)}</span></div>
+                      <div class="rejected-actions">
+                        ${
+                          r.entidad === 'animal' && db.state.animales.some((a) => a.id === r.id)
+                            ? `<button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.cerrarModal('modalConfig');RanchoApp.abrirModalAnimal('${esc(r.id)}')">Corregir</button>`
+                            : ''
+                        }
+                        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.descartarRechazo('${esc(r.clave)}')">Descartar mi cambio</button>
+                      </div>
+                    </li>`
+                  )
+                  .join('')}
+              </ul>
+            </div>`
+          : ''
+      }
+      <button type="button" id="btnSyncAhora" class="btn btn-outline btn-sm" onclick="RanchoApp.sincronizarAhora()">Sincronizar ahora</button>`;
+  },
+
+  async sincronizarAhora() {
+    const db = window.RanchoDB;
+    if (db.sesionVencida) {
+      this.cerrarModal('modalConfig');
+      this.mostrarFormularioAcceso('Tu sesión venció. Vuelve a entrar para sincronizar.');
+      return;
+    }
+    if (!navigator.onLine) {
+      this.mostrarToast('Sin señal: los cambios siguen guardados en el dispositivo.', 'error');
+      return;
+    }
+    const boton = document.getElementById('btnSyncAhora');
+    const res = await (boton
+      ? this._conBotonOcupado(boton, 'Sincronizando…', () => db.sincronizar({ esperar: true }))
+      : db.sincronizar({ esperar: true }));
+    this.renderSyncConfig();
+    if (res && res.ok && !res.rechazos) this.mostrarToast('Rancho sincronizado.');
+    else if (res && res.ok) this.mostrarToast(`${res.rechazos} cambio(s) no se pudieron subir. Revisa la lista.`, 'error');
+    else this.mostrarToast(db.syncError || 'No se pudo sincronizar. Intenta más tarde.', 'error');
+  },
+
+  descartarRechazo(clave) {
+    if (!confirm('¿Descartar este cambio? El registro volverá a como está en el servidor.')) return;
+    window.RanchoDB.descartarRechazo(clave);
+    this.renderSyncConfig();
+    this.mostrarToast('Cambio descartado.');
+  },
+
+  /** Aviso arriba del padrón: sesión vencida, cambios rechazados o cuenta de solo lectura. */
+  renderAvisosSync() {
+    const el = document.getElementById('syncAvisos');
+    if (!el) return;
+    const db = window.RanchoDB;
+    if (db.sessionMode !== 'REAL') {
+      el.hidden = true;
+      return;
+    }
+    const rechazos = Object.keys(db.rechazos || {}).length;
+    let html = '';
+    if (db.sesionVencida) {
+      html = `<span>Tu sesión venció. Los cambios se guardan en este dispositivo, pero no se suben hasta que vuelvas a entrar.</span>
+        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.mostrarFormularioAcceso('Tu sesión venció. Vuelve a entrar para sincronizar.')">Entrar de nuevo</button>`;
+    } else if (rechazos) {
+      html = `<span>${rechazos} ${rechazos === 1 ? 'cambio no se pudo' : 'cambios no se pudieron'} subir al servidor (por ejemplo, un número o arete que ya existe).</span>
+        <button type="button" class="btn btn-outline btn-sm" onclick="RanchoApp.abrirModalConfiguracion('cfgSeccionSync')">Revisar</button>`;
+    } else if (!db.puedeEditar()) {
+      html = '<span>Tu cuenta es de solo lectura en este rancho: puedes consultar y exportar, pero no modificar.</span>';
+    }
+    el.hidden = !html;
+    el.innerHTML = html;
+  },
+
+  /* ---------------------------------------------------------------- miembros */
+  async renderMiembrosConfig() {
+    const seccion = document.getElementById('cfgSeccionMiembros');
+    const cont = document.getElementById('cfgMiembros');
+    if (!seccion || !cont) return;
+    const db = window.RanchoDB;
+    seccion.hidden = !db.esAdmin();
+    if (!db.esAdmin()) return;
+
+    cont.innerHTML = '<p class="form-help-text">Cargando…</p>';
+    let miembros = [];
+    try {
+      miembros = (await db.listarMiembros()).miembros;
+    } catch (err) {
+      cont.innerHTML = `<p class="form-help-text">${esc(err.sinRed ? 'Sin conexión: la lista de personas necesita internet.' : err.message)}</p>`;
+      return;
+    }
+    this._miembros = miembros;
+    const yo = db.sesion.usuario.id;
+    const opcion = (valor, texto, actual) => `<option value="${valor}" ${valor === actual ? 'selected' : ''}>${texto}</option>`;
+    cont.innerHTML = `
+      <ul class="members-list">
+        ${miembros
+          .map(
+            (m) => `<li>
+              <div class="member-who">
+                <strong>${esc(m.nombre)}${m.id === yo ? ' (tú)' : ''}</strong>
+                <span>${esc(m.email)}</span>
+              </div>
+              <select class="form-select member-role" aria-label="Rol de ${esc(m.nombre)}"
+                onchange="RanchoApp.cambiarRolMiembro('${esc(m.id)}', this.value, this)" ${m.id === yo ? 'disabled' : ''}>
+                ${opcion('admin', 'Administrador', m.rol)}${opcion('editor', 'Editor', m.rol)}${opcion('lector', 'Solo lectura', m.rol)}
+              </select>
+              <button type="button" class="btn-icon btn-icon-danger" onclick="RanchoApp.quitarMiembro('${esc(m.id)}')"
+                ${m.id === yo ? 'disabled' : ''} aria-label="Quitar acceso a ${esc(m.nombre)}" title="Quitar acceso">
+                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+              </button>
+            </li>`
+          )
+          .join('')}
+      </ul>
+      <details class="member-add">
+        <summary>Dar acceso a otra persona</summary>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="nuevoMiembroNombre">Nombre</label>
+            <input type="text" id="nuevoMiembroNombre" class="form-input" maxlength="80" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="nuevoMiembroEmail">Correo</label>
+            <input type="email" id="nuevoMiembroEmail" class="form-input" autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="nuevoMiembroPassword">Contraseña inicial (mínimo 8)</label>
+            <input type="text" id="nuevoMiembroPassword" class="form-input input-mono" autocomplete="off" minlength="8" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="nuevoMiembroRol">Permiso</label>
+            <select id="nuevoMiembroRol" class="form-select">
+              <option value="editor">Editor: registra y modifica ganado</option>
+              <option value="lector">Solo lectura: consulta y exporta</option>
+              <option value="admin">Administrador: además dueños y personas</option>
+            </select>
+          </div>
+        </div>
+        <button type="button" id="btnAgregarMiembro" class="btn btn-primary btn-sm" onclick="RanchoApp.agregarMiembro()">Dar acceso</button>
+        <p class="form-help-text">Comparte el correo y la contraseña inicial con la persona; ella puede cambiar la contraseña al entrar. Si ya tiene cuenta, la contraseña no se cambia.</p>
+      </details>`;
+  },
+
+  async agregarMiembro() {
+    const val = (id) => document.getElementById(id).value.trim();
+    const datos = {
+      nombre: val('nuevoMiembroNombre'),
+      email: val('nuevoMiembroEmail'),
+      password: document.getElementById('nuevoMiembroPassword').value,
+      rol: val('nuevoMiembroRol')
+    };
+    if (!datos.email) {
+      this.mostrarToast('Escribe el correo de la persona.', 'error');
+      return;
+    }
+    try {
+      const r = await this._conBotonOcupado(document.getElementById('btnAgregarMiembro'), 'Agregando…', () =>
+        window.RanchoDB.agregarMiembro(datos)
+      );
+      this.mostrarToast(r.cuentaNueva ? `Cuenta creada para ${datos.email}.` : `${datos.email} ya tenía cuenta: ahora tiene acceso.`);
+      this.renderMiembrosConfig();
+    } catch (err) {
+      this.mostrarToast(err.message, 'error');
+    }
+  },
+
+  async cambiarRolMiembro(usuarioId, rol, select) {
+    try {
+      await window.RanchoDB.cambiarRolMiembro(usuarioId, rol);
+      this.mostrarToast('Permiso actualizado.');
+    } catch (err) {
+      this.mostrarToast(err.message, 'error');
+      this.renderMiembrosConfig();
+    }
+  },
+
+  async quitarMiembro(usuarioId) {
+    const m = (this._miembros || []).find((x) => x.id === usuarioId);
+    const nombre = m ? m.nombre : 'esta persona';
+    if (!confirm(`¿Quitar el acceso de ${nombre} a este rancho?`)) return;
+    try {
+      await window.RanchoDB.quitarMiembro(usuarioId);
+      this.mostrarToast(`${nombre} ya no tiene acceso.`);
+      this.renderMiembrosConfig();
+    } catch (err) {
+      this.mostrarToast(err.message, 'error');
+    }
+  },
+
+  renderDatosAntiguosConfig() {
+    const cont = document.getElementById('cfgDatosAntiguos');
+    if (!cont) return;
+    const antiguos = window.RanchoDB.datosAntiguosDelDispositivo();
+    cont.innerHTML =
+      antiguos && window.RanchoDB.puedeEditar()
+        ? `<div class="legacy-data">
+            <span>Este dispositivo tiene <strong>${antiguos.animales.length}</strong> animales de la versión anterior (con PIN) que aún no están en el servidor.</span>
+            <button type="button" class="btn btn-primary btn-sm" onclick="RanchoApp.subirDatosAntiguos()">Subir al servidor</button>
+          </div>`
+        : '';
   },
 
   descargarRespaldoJSON(prefijo = '') {
@@ -2319,6 +2582,10 @@ window.RanchoApp = {
   importarRespaldoJSON(inputEl) {
     const file = inputEl.files && inputEl.files[0];
     if (!file) return;
+    if (!this.exigirEdicion()) {
+      inputEl.value = '';
+      return;
+    }
     inputEl.value = ''; // permitir volver a elegir el mismo archivo
 
     if (file.size > 4 * 1024 * 1024) {
@@ -2357,8 +2624,7 @@ window.RanchoApp = {
       }
 
       this.descargarRespaldoJSON('Antes_de_restaurar');
-      db.state = limpio;
-      db.saveLocal();
+      db.importarEstado(parsed);
       this.cerrarModal('modalConfig');
       this.mostrarToast('Respaldo restaurado. Se descargó una copia de los datos anteriores.');
     };
@@ -2369,13 +2635,18 @@ window.RanchoApp = {
   },
 
   vaciarDatosDeEjemplo() {
+    if (!this.exigirEdicion()) return;
+    const real = window.RanchoDB.sessionMode === 'REAL';
     if (
       !confirm(
-        '¿Deseas eliminar los animales de ejemplo para capturar tu padrón real desde cero?'
+        real
+          ? '¿Eliminar TODOS los animales y registros sanitarios del rancho? También se borrarán del servidor. Antes se descargará un respaldo.'
+          : '¿Deseas eliminar los animales de ejemplo?'
       )
     ) {
       return;
     }
+    if (real) this.descargarRespaldoJSON('Antes_de_vaciar');
     window.RanchoDB.limpiarTodoElRancho();
     this.cerrarModal('modalConfig');
     this.mostrarToast('Padrón limpio y listo para registrar.');
